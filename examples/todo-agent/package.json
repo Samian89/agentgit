@@ -1,0 +1,17 @@
+{
+  "name": "todo-agent",
+  "version": "0.1.0",
+  "description": "Example: a to-do list agent wrapped with AgentGit",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node run-agent.js"
+  },
+  "dependencies": {
+    "@agentgit/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@agentgit/cli": "workspace:*"
+  }
+}

@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@agentgit/core": resolve(__dirname, "../core/src/index.ts"),
+      "@agentgit/sdk": resolve(__dirname, "../sdk/src/index.ts"),
     },
   },
   test: {

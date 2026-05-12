@@ -4,13 +4,21 @@
   "description": "Commander-based CLI — agentgit init, log, diff, checkout, replay, export",
   "license": "MIT",
   "type": "module",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "bin": {
     "agentgit": "dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run tests/integration",
     "clean": "rimraf dist"
   },
   "dependencies": {
@@ -18,9 +26,11 @@
     "commander": "^12.1.0"
   },
   "devDependencies": {
+    "@agentgit/sdk": "workspace:*",
     "@types/node": "*",
     "rimraf": "*",
     "typescript": "*",
-    "vitest": "*"
+    "vitest": "*",
+    "zod": "^3.23.0"
   }
 }

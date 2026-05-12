@@ -54,6 +54,7 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
     def _db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(os.path.join(self.agentgit_dir, "index.db"))
         conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
         return conn
 
     def _write_object(self, hash_hex: str, content: str) -> None:
@@ -164,16 +165,31 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         finally:
             conn.close()
 
+    @staticmethod
+    def _parse_tool_input(input_str: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        # Newer LangChain versions pass structured inputs via the `inputs` kwarg.
+        raw_inputs = kwargs.get("inputs")
+        if isinstance(raw_inputs, dict):
+            return raw_inputs
+        # input_str is often a JSON-serialized object; try to recover the structure.
+        try:
+            parsed = json.loads(input_str)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return {"input": input_str}
+
     def on_tool_start(
         self, serialized: Dict[str, Any], input_str: str, **kwargs: Any
     ) -> None:
         self._pending_tool = {
             "id": str(uuid.uuid4()),
             "name": serialized.get("name", "unknown"),
-            "input": {"input": input_str},
+            "input": self._parse_tool_input(input_str, kwargs),
             "output": None,
             "startedAt": _now_ms(),
-            "finishedAt": None,
+            "completedAt": None,
             "status": "pending",
             "error": None,
         }
@@ -187,7 +203,7 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         tool_call = {
             **pending,
             "output": output_str,
-            "finishedAt": _now_ms(),
+            "completedAt": _now_ms(),
             "status": "success",
         }
         self._record_commit(message=f'tool: {tool_call["name"]}', tool_call=tool_call)
@@ -202,7 +218,7 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         tool_call = {
             **pending,
             "output": None,
-            "finishedAt": _now_ms(),
+            "completedAt": _now_ms(),
             "status": "error",
             "error": str(error),
         }
@@ -236,6 +252,6 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
                 "outputs": outputs,
                 "llmOutput": response.llm_output,
                 "startedAt": pending["startedAt"],
-                "finishedAt": _now_ms(),
+                "completedAt": _now_ms(),
             },
         )

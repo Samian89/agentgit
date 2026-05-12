@@ -19,8 +19,23 @@ export interface CheckoutSnapshot {
 
 export function checkoutCommand(agentgitDir: string, commitHash: Hash): void {
   const repo = Repository.open(agentgitDir);
-  const commit = repo.index.getCommit(commitHash);
 
+  let resolvedHash: string | null;
+  try {
+    resolvedHash = repo.index.resolveHash(commitHash);
+  } catch (err) {
+    console.error(`fatal: ${String(err)}`);
+    repo.index.close();
+    process.exit(1);
+  }
+  if (!resolvedHash) {
+    console.error(`fatal: commit not found: ${commitHash}`);
+    repo.index.close();
+    process.exit(1);
+  }
+  commitHash = resolvedHash;
+
+  const commit = repo.index.getCommit(commitHash);
   if (!commit) {
     console.error(`fatal: commit not found: ${commitHash}`);
     repo.index.close();

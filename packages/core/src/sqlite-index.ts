@@ -272,6 +272,29 @@ export class SqliteIndex {
     this.db.prepare(`DELETE FROM refs WHERE name = ?`).run(name);
   }
 
+  /**
+   * Resolve a full or abbreviated commit hash to a full 64-char hash.
+   * Returns the full hash if exactly one commit matches the prefix.
+   * Returns null if no commit matches.
+   * Throws if the prefix is ambiguous (matches more than one commit).
+   */
+  resolveHash(prefix: string): Hash | null {
+    if (prefix.length === 64) {
+      const row = this.db
+        .prepare(`SELECT hash FROM commits WHERE hash = ?`)
+        .get(prefix) as { hash: string } | undefined;
+      return row ? row.hash : null;
+    }
+    const rows = this.db
+      .prepare(`SELECT hash FROM commits WHERE hash LIKE ?`)
+      .all(prefix + "%") as { hash: string }[];
+    if (rows.length === 0) return null;
+    if (rows.length === 1) return rows[0]!.hash;
+    throw new Error(
+      `Ambiguous commit prefix '${prefix}' matches ${rows.length} commits`,
+    );
+  }
+
   /** Close the underlying database connection. */
   close(): void {
     this.db.close();

@@ -121,13 +121,32 @@ class TestToolCallRecording:
         count = db_rows(tmp_repo, "SELECT COUNT(*) FROM commits")[0][0]
         assert count == 0
 
-    def test_tool_call_input_recorded(self, handler, tmp_repo):
+    def test_tool_call_plain_string_input_wrapped(self, handler, tmp_repo):
         self._setup(handler)
         handler.on_tool_start({"name": "search"}, "my query")
         handler.on_tool_end("result")
 
         tc = json.loads(db_rows(tmp_repo, "SELECT tool_call FROM commits")[0][0])
         assert tc["input"]["input"] == "my query"
+
+    def test_tool_call_json_object_input_preserved(self, handler, tmp_repo):
+        self._setup(handler)
+        handler.on_tool_start({"name": "search"}, '{"query": "AI", "max_results": 5}')
+        handler.on_tool_end("results")
+
+        tc = json.loads(db_rows(tmp_repo, "SELECT tool_call FROM commits")[0][0])
+        assert tc["input"]["query"] == "AI"
+        assert tc["input"]["max_results"] == 5
+
+    def test_tool_call_kwargs_inputs_takes_priority(self, handler, tmp_repo):
+        self._setup(handler)
+        handler.on_tool_start(
+            {"name": "search"}, "fallback", inputs={"query": "structured"}
+        )
+        handler.on_tool_end("result")
+
+        tc = json.loads(db_rows(tmp_repo, "SELECT tool_call FROM commits")[0][0])
+        assert tc["input"]["query"] == "structured"
 
 
 # ---------------------------------------------------------------------------

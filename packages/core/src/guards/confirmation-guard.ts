@@ -1,7 +1,20 @@
 import * as readline from "node:readline/promises";
 import type { Guard, GuardContext, GuardResult, PromptFn } from "./types.js";
 
-const DEFAULT_DESTRUCTIVE_TOOLS = ["deleteFile", "rm", "shell"];
+const DEFAULT_DESTRUCTIVE_TOOLS = [
+  "deleteFile",
+  "delete_file",
+  "removeFile",
+  "remove_file",
+  "rm",
+  "shell",
+  "bash",
+  "Bash",
+  "execute_bash",
+  "run_bash",
+  "run_command",
+  "exec",
+];
 
 export interface ConfirmationGuardOptions {
   destructiveTools?: string[];
