@@ -1,0 +1,30 @@
+{
+  "name": "@agentgit/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for wrapping agents with AgentGit recording and interceptors",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@agentgit/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "rimraf": "*",
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

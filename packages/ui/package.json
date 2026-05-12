@@ -1,0 +1,43 @@
+{
+  "name": "@agentgit/ui",
+  "version": "0.1.0",
+  "description": "Tauri + React desktop UI — timeline, step cards, diffs, and blame view",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "dev:vite": "vite --port 1420",
+    "build": "tauri build",
+    "build:vite": "vite build",
+    "pretest": "node scripts/seed-fixture.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-sql": "^2.0.0",
+    "diff-match-patch": "^1.0.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0",
+    "@testing-library/jest-dom": "^6.4.6",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.2",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/node": "*",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "better-sqlite3": "^9.6.0",
+    "happy-dom": "^15.7.3",
+    "rimraf": "*",
+    "typescript": "*",
+    "vite": "^5.3.4",
+    "vitest": "^2.0.3"
+  }
+}

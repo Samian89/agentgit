@@ -1,0 +1,10 @@
+pyproject.toml
+setup.py
+agentgit_adapter/__init__.py
+agentgit_adapter/adapter.py
+agentgit_adapter.egg-info/PKG-INFO
+agentgit_adapter.egg-info/SOURCES.txt
+agentgit_adapter.egg-info/dependency_links.txt
+agentgit_adapter.egg-info/requires.txt
+agentgit_adapter.egg-info/top_level.txt
+tests/test_wrap_agent.py

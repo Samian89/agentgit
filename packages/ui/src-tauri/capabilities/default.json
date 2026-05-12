@@ -1,0 +1,12 @@
+{
+  "identifier": "default",
+  "description": "Default capability — grants core and SQL plugin access to the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-load",
+    "sql:allow-close"
+  ]
+}

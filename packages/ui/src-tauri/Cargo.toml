@@ -1,0 +1,24 @@
+[package]
+name = "agentgit-ui"
+version = "0.1.0"
+edition = "2021"
+description = "AgentGit desktop UI (Tauri shell)"
+license = "MIT"
+
+[lib]
+name = "agentgit_ui_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "agentgit-ui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-native-tls"] }

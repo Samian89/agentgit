@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentgit-langchain"
+version = "0.1.0"
+description = "LangChain callback adapter for AgentGit"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "langchain-core>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "langchain-core>=0.2.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["agentgit_langchain*"]

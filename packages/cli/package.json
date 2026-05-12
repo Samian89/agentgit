@@ -1,0 +1,26 @@
+{
+  "name": "@agentgit/cli",
+  "version": "0.1.0",
+  "description": "Commander-based CLI — agentgit init, log, diff, checkout, replay, export",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "agentgit": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@agentgit/core": "workspace:*",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "rimraf": "*",
+    "typescript": "*",
+    "vitest": "*"
+  }
+}
