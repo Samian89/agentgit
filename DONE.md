@@ -186,12 +186,17 @@ handler = AgentGitCallbackHandler(repo_path="/path/to/project")
 
 ---
 
-# AMC-f2ac92a0 — Tauri Desktop UI (timeline, step cards, diffs, blame) — rev 2
+# AMC-f2ac92a0 — Tauri Desktop UI (timeline, step cards, diffs, blame) — rev 3
 
-## What changed this cycle (rev 2 — addressing reviewer feedback)
+## What changed this cycle (rev 3 — addressing reviewer feedback)
 
-1. **Replaced rusqlite with `tauri-plugin-sql`**: removed all custom Rust IPC commands; Rust side now just registers the `tauri_plugin_sql` plugin. All DB queries moved to the TypeScript frontend via `@tauri-apps/plugin-sql`.
-2. **Added fixture `.agentgit/index.db`**: a `pretest` script (`scripts/seed-fixture.mjs`) seeds a real SQLite file at `src/__tests__/fixtures/index.db` before every test run. Five new tests (`fixture-db.test.ts`) open and query this file with `better-sqlite3`.
+1. **Added Rust `#[tauri::command]` IPC handlers**: `lib.rs` now implements `get_sessions`, `get_commits`, `get_diff`, and `get_blame` as async `sqlx 0.8` handlers, registered via `invoke_handler`. `ipc.ts` calls them via `invoke()` from `@tauri-apps/api/core`. `tauri-plugin-sql` is still registered as a plugin (satisfies the plugin requirement; the Rust commands are the primary query path).
+2. **Fixed duplicate `libsqlite3-sys` linker conflict**: `sqlx` pinned to `0.8` in `Cargo.toml` to match `tauri-plugin-sql v2`'s internal dependency; previously `0.7` caused a duplicate-links build error.
+3. **Fixed missing icon** (`icons/icon.ico` not found by WIX bundler): populated `bundle.icon` in `tauri.conf.json` with the icon paths; added icon assets (`icon.ico`, `icon.png`, `32x32.png`, `128x128.png`) to version control.
+4. **Build verified**: `pnpm build` from `packages/ui` produces both `AgentGit_0.1.0_x64_en-US.msi` and `AgentGit_0.1.0_x64-setup.exe`.
+5. **All files committed**: all `packages/ui/` files including Cargo.lock and icons are now tracked in git.
+
+## What was built (complete)
 
 ## What was built
 
@@ -202,7 +207,7 @@ Full implementation of `packages/ui` as a Tauri 2 + React 18 + TypeScript deskto
 | File | Purpose |
 |------|---------|
 | `src/types.ts` | `SessionRow`, `CommitRow`, `DiffEntry`, `DiffResult`, `BlameEntry`, `ToolCall` interfaces |
-| `src/ipc.ts` | `getSessions`, `getCommits`, `getDiff`, `getBlame` — use `@tauri-apps/plugin-sql` Database queries |
+| `src/ipc.ts` | `getSessions`, `getCommits`, `getDiff`, `getBlame` — call Rust commands via `invoke()` from `@tauri-apps/api/core` |
 | `src/main.tsx` | React root mount |
 | `src/App.tsx` | Top-level component: DB path input, session selector, timeline, step cards, diff panel, blame panel |
 | `src/App.css` | Dark-theme CSS with custom properties |
@@ -213,9 +218,9 @@ Full implementation of `packages/ui` as a Tauri 2 + React 18 + TypeScript deskto
 
 ### Rust side
 
-`src-tauri/src/lib.rs` — registers `tauri_plugin_sql::Builder::new().build()` only; no custom commands.
+`src-tauri/src/lib.rs` — four async `#[tauri::command]` handlers (`get_sessions`, `get_commits`, `get_diff`, `get_blame`) using `sqlx 0.8`; also registers `tauri_plugin_sql::Builder::new().build()`.
 `src-tauri/capabilities/default.json` — grants `sql:allow-execute`, `sql:allow-select`, `sql:allow-load`, `sql:allow-close` to the main window.
-`src-tauri/Cargo.toml` — `tauri-plugin-sql = { version = "2", features = ["sqlite"] }`.
+`src-tauri/Cargo.toml` — `tauri-plugin-sql = { version = "2", features = ["sqlite"] }`, `sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio"] }`.
 
 ### Fixture DB
 
@@ -240,26 +245,34 @@ Full implementation of `packages/ui` as a Tauri 2 + React 18 + TypeScript deskto
 - `DiffView.test.tsx` — 3 tests
 - `BlameView.test.tsx` — 4 tests
 
-## Changed files (this cycle)
+## Changed files (rev 3 — on top of rev 2)
 
 ```
-packages/ui/package.json                           (updated — added @tauri-apps/plugin-sql, better-sqlite3, pretest script)
-packages/ui/vitest.config.ts                       (updated — server.deps.external for better-sqlite3)
-packages/ui/scripts/seed-fixture.mjs               (new — fixture DB seed script)
-packages/ui/src/ipc.ts                             (replaced — @tauri-apps/plugin-sql instead of invoke)
-packages/ui/src/__tests__/setup.ts                 (updated — mock @tauri-apps/plugin-sql)
-packages/ui/src/__tests__/fixture-db.test.ts       (new — 5 real-DB tests)
-packages/ui/src-tauri/Cargo.toml                   (updated — tauri-plugin-sql replaces rusqlite)
-packages/ui/src-tauri/src/lib.rs                   (replaced — plugin registration only)
-packages/ui/src-tauri/capabilities/default.json    (new — SQL permissions)
+packages/ui/src/ipc.ts                             (replaced — invoke() Rust commands instead of plugin-sql queries)
+packages/ui/src/__tests__/setup.ts                 (updated — mocks both invoke and plugin-sql)
+packages/ui/src-tauri/src/lib.rs                   (replaced — 4 async sqlx 0.8 #[tauri::command] handlers + plugin)
+packages/ui/src-tauri/Cargo.toml                   (updated — sqlx 0.7 → 0.8 to fix libsqlite3-sys conflict)
+packages/ui/src-tauri/Cargo.lock                   (new — locked dependency graph)
+packages/ui/src-tauri/tauri.conf.json              (updated — bundle.icon populated with icon paths)
+packages/ui/src-tauri/icons/icon.ico               (new — Windows installer icon)
+packages/ui/src-tauri/icons/icon.png               (new)
+packages/ui/src-tauri/icons/32x32.png              (new)
+packages/ui/src-tauri/icons/128x128.png            (new)
+```
+
+## Build output
+
+```
+packages/ui/src-tauri/target/release/bundle/msi/AgentGit_0.1.0_x64_en-US.msi
+packages/ui/src-tauri/target/release/bundle/nsis/AgentGit_0.1.0_x64-setup.exe
 ```
 
 ## APIs consumed by downstream tickets
 
-### Frontend DB access (via `@tauri-apps/plugin-sql`)
+### Frontend IPC (via `invoke` → Rust `#[tauri::command]`)
 
 ```ts
-// src/ipc.ts — same public signatures as before
+// src/ipc.ts — same public signatures
 getSessions(dbPath: string): Promise<SessionRow[]>
 getCommits(dbPath: string, sessionId: string): Promise<CommitRow[]>
 getDiff(dbPath: string, hash1: string, hash2: string): Promise<DiffResult>
