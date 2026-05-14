@@ -9,9 +9,9 @@ JSON. A SQLite index sits beside the object store and answers `log` / `diff` /
 This page covers the on-disk layout, the relational index, the request flow
 through `wrapAgentJS`, and the invariants the implementation relies on.
 
-> All diagrams on this page are plain ASCII so they render correctly in
-> VitePress (which has no Mermaid plugin enabled), on GitHub, and in any other
-> Markdown viewer.
+> All diagrams on this page are plain text, not Mermaid, so they render
+> correctly in VitePress (which has no Mermaid plugin enabled), on GitHub, and
+> in any other Markdown viewer.
 
 ## On-disk layout
 

@@ -179,17 +179,29 @@ hash.
 If `index.db` is corrupt but the object store is intact, AgentGit cannot
 rebuild the index today. `agentgit fsck` is planned, but it has not shipped.
 Restore the whole `.agentgit/` directory from backup when you need queryable
-history back. If you only need to continue with new sessions, move the broken
-index files aside and create an empty index:
+history back.
+
+If there is no usable backup and you only need to continue with new sessions,
+rotate the entire store out of the way and initialize a fresh one. Do not move
+only `index.db*` aside while leaving the old `objects/` and `refs/` in place:
+that creates a mixed store where refs and object files are disconnected from
+the new empty index.
 
 ```bash
-mkdir -p .agentgit/broken-index
-mv .agentgit/index.db* .agentgit/broken-index/
+mv .agentgit ".agentgit.corrupt.$(date +%s)"
 agentgit init .
 ```
 
-Existing object files and refs remain on disk, but old sessions will not appear
-in `agentgit log` until a future reindex/fsck tool exists.
+On Windows PowerShell:
+
+```powershell
+Rename-Item .agentgit ".agentgit.corrupt.$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+agentgit init .
+```
+
+The rotated directory preserves the old bytes for later analysis, but old
+sessions will not appear in `agentgit log` until a future reindex/fsck tool
+exists.
 
 ## Symlinks
 
@@ -346,7 +358,11 @@ tree, and blob is its own filesystem object.
 
 ### Fix
 
-Export important sessions first:
+There is no supported partial prune command today. `agentgit gc` is planned,
+but until it ships the safe fix is to inventory the store, export what matters,
+and rotate whole stores rather than deleting selected rows from SQLite.
+
+Inventory sessions and object count with read-only commands:
 
 ```bash
 node -e "
@@ -361,221 +377,64 @@ for (const r of db.prepare(
 db.close();
 "
 
+node -e "
+const fs = require('fs');
+const path = require('path');
+const root = path.join('.agentgit', 'objects');
+let files = 0;
+let bytes = 0;
+if (fs.existsSync(root)) {
+  for (const shard of fs.readdirSync(root)) {
+    const dir = path.join(root, shard);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    for (const file of fs.readdirSync(dir)) {
+      const p = path.join(dir, file);
+      const st = fs.statSync(p);
+      if (st.isFile()) {
+        files++;
+        bytes += st.size;
+      }
+    }
+  }
+}
+console.log({ objectFiles: files, objectBytes: bytes });
+"
+```
+
+Export important sessions before reclaiming space:
+
+```bash
 mkdir -p archive
 agentgit export <session-name-or-id> > archive/<session-name>.json
 ```
 
-Then use this maintenance script. It defaults to dry-run mode. The script
-avoids the known trap in this schema: deleting a session directly can fail
-because `commits.parent` is `ON DELETE RESTRICT`, and deleting commits does not
-remove `tree_entries` because `tree_entries.tree_hash` is not a foreign key.
-It deletes stale `tree_entries` before orphaned `blobs` rows, then unlinks
-unreferenced object files only after the SQLite transaction has committed.
+For CI or disposable local history, rotate the whole store and reinitialize:
 
 ```bash
-node -e "
-const dryRun = true; // set false after reviewing the dry-run output
-const fs = require('fs');
-const path = require('path');
-const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
-const db = new Database('.agentgit/index.db');
-db.pragma('foreign_keys = ON');
-
-const cutoffMs = Date.now() - 7 * 86400 * 1000;
-const hashRe = /^[a-f0-9]{64}$/;
-const placeholders = (n) => Array.from({ length: n }, () => '?').join(',');
-function objectPath(hash) {
-  return path.join('.agentgit', 'objects', hash.slice(0, 2), hash.slice(2));
-}
-function listObjectHashes() {
-  const root = path.join('.agentgit', 'objects');
-  if (!fs.existsSync(root)) return [];
-  const hashes = [];
-  for (const shard of fs.readdirSync(root)) {
-    const dir = path.join(root, shard);
-    if (!fs.statSync(dir).isDirectory()) continue;
-    for (const file of fs.readdirSync(dir)) hashes.push(shard + file);
-  }
-  return hashes.filter((h) => hashRe.test(h));
-}
-function collectHashes(value, out) {
-  if (typeof value === 'string') {
-    if (hashRe.test(value)) out.add(value);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const v of value) collectHashes(v, out);
-    return;
-  }
-  if (value && typeof value === 'object') {
-    for (const v of Object.values(value)) collectHashes(v, out);
-  }
-}
-function deleteIn(table, column, values) {
-  if (!values.length) return 0;
-  return db.prepare('DELETE FROM ' + table + ' WHERE ' + column + ' IN (' + placeholders(values.length) + ')').run(...values).changes;
-}
-function commitsForSessions(ids) {
-  if (!ids.length) return [];
-  return db.prepare(
-    'SELECT hash, tree, session_id FROM commits WHERE session_id IN (' + placeholders(ids.length) + ')'
-  ).all(...ids);
-}
-function deletableSessionIds(candidateIds) {
-  const deletable = new Set(candidateIds);
-  while (deletable.size > 0) {
-    const rows = commitsForSessions([...deletable]);
-    if (rows.length === 0) break;
-    const hashes = rows.map((r) => r.hash);
-    const blocked = db.prepare(
-      'SELECT DISTINCT p.session_id AS session_id FROM commits child JOIN commits p ON child.parent = p.hash ' +
-      'WHERE p.hash IN (' + placeholders(hashes.length) + ') AND child.hash NOT IN (' + placeholders(hashes.length) + ')'
-    ).all(...hashes, ...hashes).map((r) => r.session_id);
-    const before = deletable.size;
-    for (const id of blocked) deletable.delete(id);
-    if (deletable.size === before) break;
-  }
-  return [...deletable];
-}
-function protectedHashesFromRemainingCommits() {
-  const protectedHashes = new Set();
-  for (const r of db.prepare('SELECT metadata, tool_call FROM commits').all()) {
-    try { collectHashes(JSON.parse(r.metadata || '{}'), protectedHashes); } catch {}
-    try { if (r.tool_call) collectHashes(JSON.parse(r.tool_call), protectedHashes); } catch {}
-  }
-  return protectedHashes;
-}
-function unreferencedObjects(protectedHashes) {
-  const live = new Set(protectedHashes);
-  for (const r of db.prepare('SELECT hash, tree FROM commits').all()) {
-    live.add(r.hash);
-    live.add(r.tree);
-  }
-  for (const r of db.prepare('SELECT tree_hash, blob_hash FROM tree_entries').all()) {
-    live.add(r.tree_hash);
-    live.add(r.blob_hash);
-  }
-  for (const r of db.prepare('SELECT hash FROM blobs').all()) live.add(r.hash);
-  return listObjectHashes().filter((h) => !live.has(h));
-}
-function orphanBlobHashes(protectedHashes) {
-  return db.prepare(
-    'SELECT hash FROM blobs WHERE NOT EXISTS (SELECT 1 FROM tree_entries WHERE tree_entries.blob_hash = blobs.hash)'
-  ).all().map((r) => r.hash).filter((h) => !protectedHashes.has(h));
-}
-function dryRunAnalysis(candidateIds, deletableIds, doomedRows) {
-  const doomedHashes = new Set(doomedRows.map((r) => r.hash));
-  const refs = doomedHashes.size
-    ? db.prepare('SELECT COUNT(*) AS n FROM refs WHERE target IN (' + placeholders(doomedHashes.size) + ')').get(...doomedHashes).n
-    : 0;
-  const remainingCommits = doomedHashes.size
-    ? db.prepare('SELECT hash, tree, metadata, tool_call FROM commits WHERE hash NOT IN (' + placeholders(doomedHashes.size) + ')').all(...doomedHashes)
-    : db.prepare('SELECT hash, tree, metadata, tool_call FROM commits').all();
-  const remainingTrees = new Set(remainingCommits.map((r) => r.tree));
-  const staleTreeEntries = remainingTrees.size
-    ? db.prepare('SELECT COUNT(*) AS n FROM tree_entries WHERE tree_hash NOT IN (' + placeholders(remainingTrees.size) + ')').get(...remainingTrees).n
-    : db.prepare('SELECT COUNT(*) AS n FROM tree_entries').get().n;
-  const remainingTreeEntries = remainingTrees.size
-    ? db.prepare('SELECT tree_hash, blob_hash FROM tree_entries WHERE tree_hash IN (' + placeholders(remainingTrees.size) + ')').all(...remainingTrees)
-    : [];
-  const remainingTreeBlobs = new Set(remainingTreeEntries.map((r) => r.blob_hash));
-  const protectedHashes = new Set();
-  for (const r of remainingCommits) {
-    try { collectHashes(JSON.parse(r.metadata || '{}'), protectedHashes); } catch {}
-    try { if (r.tool_call) collectHashes(JSON.parse(r.tool_call), protectedHashes); } catch {}
-  }
-  const blobRows = db.prepare('SELECT hash FROM blobs').all().map((r) => r.hash);
-  const orphanBlobs = blobRows.filter((h) => !remainingTreeBlobs.has(h) && !protectedHashes.has(h));
-  const remainingBlobRows = new Set(blobRows.filter((h) => !orphanBlobs.includes(h)));
-  const live = new Set(protectedHashes);
-  for (const r of remainingCommits) {
-    live.add(r.hash);
-    live.add(r.tree);
-  }
-  for (const r of remainingTreeEntries) {
-    live.add(r.tree_hash);
-    live.add(r.blob_hash);
-  }
-  for (const h of remainingBlobRows) live.add(h);
-  const objects = listObjectHashes().filter((h) => !live.has(h)).length;
-  return {
-    sessions: deletableIds.length,
-    commits: doomedHashes.size,
-    refs,
-    treeEntries: staleTreeEntries,
-    blobs: orphanBlobs.length,
-    objects,
-    blocked: candidateIds.length - deletableIds.length,
-  };
-}
-
-const tx = db.transaction(() => {
-  const candidates = db.prepare(
-    \"SELECT id, name FROM sessions WHERE status IN ('abandoned','failed') AND updated_at < ?\"
-  ).all(cutoffMs);
-  if (candidates.length === 0) return { sessions: 0, commits: 0, refs: 0, treeEntries: 0, blobs: 0, objects: 0, blocked: 0 };
-
-  const candidateIds = candidates.map((s) => s.id);
-  const deletableIds = deletableSessionIds(candidateIds);
-  const doomedRows = commitsForSessions(deletableIds);
-  const doomed = new Set(doomedRows.map((r) => r.hash));
-
-  if (dryRun) {
-    return dryRunAnalysis(candidateIds, deletableIds, doomedRows);
-  }
-
-  let refs = 0;
-  if (doomed.size) {
-    refs = db.prepare('DELETE FROM refs WHERE target IN (' + placeholders(doomed.size) + ')').run(...doomed).changes;
-  }
-
-  let commits = 0;
-  while (doomed.size) {
-    const leaves = [];
-    for (const h of doomed) {
-      const child = db.prepare('SELECT 1 FROM commits WHERE parent = ? LIMIT 1').get(h);
-      if (!child) leaves.push(h);
-    }
-    if (leaves.length === 0) throw new Error('cannot prune: commit parent cycle or external child remains');
-    commits += deleteIn('commits', 'hash', leaves);
-    for (const h of leaves) doomed.delete(h);
-  }
-
-  const sessions = deleteIn('sessions', 'id', deletableIds);
-
-  const treeEntries = db.prepare(
-    'DELETE FROM tree_entries WHERE NOT EXISTS (SELECT 1 FROM commits WHERE commits.tree = tree_entries.tree_hash)'
-  ).run().changes;
-
-  const protectedHashes = protectedHashesFromRemainingCommits();
-  const orphanBlobs = orphanBlobHashes(protectedHashes);
-  const blobs = deleteIn('blobs', 'hash', orphanBlobs);
-  const objectsToDelete = unreferencedObjects(protectedHashes);
-  return { sessions, commits, refs, treeEntries, blobs, objects: objectsToDelete.length, blocked: candidateIds.length - deletableIds.length, objectsToDelete };
-});
-
-const result = tx();
-if (!dryRun && result.objectsToDelete) {
-  for (const hash of result.objectsToDelete) fs.unlinkSync(objectPath(hash));
-  delete result.objectsToDelete;
-}
-console.log(dryRun ? '[dry run]' : '[applied]', result);
-db.close();
-"
+mv .agentgit ".agentgit.archive.$(date +%s)"
+agentgit init .
 ```
 
-After applying the cleanup, reclaim unused SQLite pages:
+On Windows PowerShell:
 
-```bash
-node -e "
-const path = require('path');
-const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
-const db = new Database('.agentgit/index.db');
-db.exec('VACUUM');
-db.close();
-"
+```powershell
+Rename-Item .agentgit ".agentgit.archive.$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+agentgit init .
 ```
 
-If the dry run reports `blocked`, those sessions have commits that are parents
-of commits in another session. Keep them until first-class `agentgit gc` can
-reason about reachability across refs and sessions.
+After you have verified the exported sessions, move the rotated archive to
+external storage or let the CI workspace cleanup remove it. Reclaim space at
+the directory level; avoid deleting selected object shards or SQLite rows by
+hand.
+
+For a long-lived repository, keep the existing store and wait for first-class
+`agentgit gc` instead of running ad hoc SQL. The schema has two important traps:
+
+- `tree_entries.tree_hash` is not a foreign key, so deleting commits or
+  sessions does not automatically delete stale tree-entry projections.
+- `blobs` rows and blob object files may stay referenced by surviving
+  `tree_entries` rows even after the session that originally wrote them is
+  gone.
+
+Those details are why the planned `gc` command must compute reachability across
+refs, session heads, commits, trees, and blobs before it moves any object file.
