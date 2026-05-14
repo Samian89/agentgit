@@ -22,7 +22,7 @@ try:
     # Default guards come from the generic Python adapter so the LangChain
     # handler and the standalone AgentWrapper share one canonical implementation.
     from agentgit_adapter.guards import GuardRegistry, build_default_guards
-except ImportError as exc:  # pragma: no cover - exercised by monkeypatch tests
+except Exception as exc:  # pragma: no cover - exercised by monkeypatch tests
     GuardRegistry = None  # type: ignore[assignment]
     build_default_guards = None  # type: ignore[assignment]
     _GUARD_IMPORT_ERROR = exc
@@ -220,9 +220,11 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
                 }
             )
 
-        self._guard_registry = GuardRegistry(
-            build_default_guards(config, write_blob=write_blob)
-        )
+        try:
+            guards = build_default_guards(config, write_blob=write_blob)
+            self._guard_registry = GuardRegistry(guards)
+        except Exception as exc:
+            self._guard_registry = _FailClosedRegistry(exc)
 
     def _record_commit(
         self,

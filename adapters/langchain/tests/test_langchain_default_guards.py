@@ -89,6 +89,23 @@ class TestDefaultGuards:
         count = db_rows(tmp_repo, "SELECT COUNT(*) FROM commits")[0][0]
         assert count == 0
 
+    def test_guard_builder_failure_fails_closed(self, tmp_repo, monkeypatch):
+        def broken_build_default_guards(*_args, **_kwargs):
+            raise ImportError("missing transitive guard dependency")
+
+        monkeypatch.setattr(
+            handler_module, "build_default_guards", broken_build_default_guards
+        )
+
+        handler = AgentGitCallbackHandler(repo_path=tmp_repo)
+        handler.on_agent_action(AgentAction(tool="search", tool_input="q", log=""))
+
+        with pytest.raises(RuntimeError, match="guard dependencies unavailable"):
+            handler.on_tool_start({"name": "search"}, "q")
+
+        count = db_rows(tmp_repo, "SELECT COUNT(*) FROM commits")[0][0]
+        assert count == 0
+
     def test_missing_guard_dependency_still_honors_opt_out(
         self, tmp_repo, monkeypatch
     ):
