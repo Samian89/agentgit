@@ -7,6 +7,8 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: "Guide", link: "/quickstart" },
+      { text: "Architecture", link: "/architecture" },
+      { text: "Troubleshooting", link: "/troubleshooting" },
       { text: "CLI Reference", link: "/cli-reference" },
       { text: "SDK API", link: "/sdk-api" },
     ],
@@ -19,6 +21,12 @@ export default defineConfig({
         ],
       },
       {
+        text: "Concepts",
+        items: [
+          { text: "Architecture", link: "/architecture" },
+        ],
+      },
+      {
         text: "Reference",
         items: [
           { text: "CLI Reference", link: "/cli-reference" },
@@ -26,6 +34,12 @@ export default defineConfig({
           { text: "Adapters", link: "/adapters" },
           { text: "Safety Guards", link: "/safety-guards" },
           { text: "Replay Export", link: "/replay-export" },
+        ],
+      },
+      {
+        text: "Operations",
+        items: [
+          { text: "Troubleshooting", link: "/troubleshooting" },
         ],
       },
     ],

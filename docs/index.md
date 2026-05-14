@@ -9,8 +9,8 @@ hero:
       text: Get Started
       link: /quickstart
     - theme: alt
-      text: CLI Reference
-      link: /cli-reference
+      text: Architecture
+      link: /architecture
 features:
   - title: Content-Addressed Object Store
     details: Every commit is SHA-256 hashed from its canonical JSON. Identical content always produces the same address — no duplicates, no corruption.
@@ -65,5 +65,13 @@ adapters/python   — Python drop-in adapter
 adapters/langchain— LangChain callback handler
 packages/ui       — Tauri + React desktop app
 ```
+
+## Core Docs
+
+- [Quickstart](./quickstart.md) - install, wrap an agent, and inspect a log.
+- [Architecture](./architecture.md) - object-store layout, SQLite ER diagram, sequence flow, and invariants.
+- [Troubleshooting](./troubleshooting.md) - six operational failure modes with repros and fixes.
+- [CLI reference](./cli-reference.md)
+- [SDK API](./sdk-api.md)
 
 All packages are MIT licensed.
