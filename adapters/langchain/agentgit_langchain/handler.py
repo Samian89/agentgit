@@ -5,11 +5,79 @@ import sqlite3
 import subprocess
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from langchain_core.agents import AgentAction, AgentFinish
-from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.outputs import LLMResult
+
+try:
+    from langchain_core.callbacks import BaseCallbackHandler
+except Exception:  # pragma: no cover - depends on installed LangChain extras
+    class BaseCallbackHandler:  # type: ignore[no-redef]
+        pass
+
+_GUARD_IMPORT_ERROR: Optional[BaseException] = None
+
+try:
+    # Default guards come from the generic Python adapter so the LangChain
+    # handler and the standalone AgentWrapper share one canonical implementation.
+    from agentgit_adapter.guards import GuardRegistry, build_default_guards
+except ImportError as exc:  # pragma: no cover - exercised by monkeypatch tests
+    GuardRegistry = None  # type: ignore[assignment]
+    build_default_guards = None  # type: ignore[assignment]
+    _GUARD_IMPORT_ERROR = exc
+
+
+class _NullRegistry:
+    """No-op registry used for the explicit ``guards=False`` opt-out."""
+
+    size = 0
+
+    def run(self, _tool_call: Dict[str, Any]) -> Dict[str, Any]:
+        return {"outcome": "allow"}
+
+
+class _LocalRegistry:
+    """Small guard runner used when callers pass an explicit guard array."""
+
+    def __init__(self, guards: Sequence[Any]) -> None:
+        self._guards = list(guards)
+
+    @property
+    def size(self) -> int:
+        return len(self._guards)
+
+    def run(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
+        last_snapshot: Any = None
+        for guard in self._guards:
+            result = guard.check(tool_call)
+            if "snapshot_hash" in result:
+                last_snapshot = result["snapshot_hash"]
+            if result.get("outcome") == "block":
+                return result
+        out: Dict[str, Any] = {"outcome": "allow"}
+        if last_snapshot is not None:
+            out["snapshot_hash"] = last_snapshot
+        return out
+
+
+class _FailClosedRegistry:
+    """Blocks tool calls when the default guard implementation is unavailable."""
+
+    size = 1
+
+    def __init__(self, error: Optional[BaseException]) -> None:
+        self._error = error
+
+    def run(self, tool_call: Dict[str, Any]) -> Dict[str, Any]:
+        detail = f": {self._error}" if self._error is not None else ""
+        return {
+            "outcome": "block",
+            "reason": (
+                "default guard dependencies unavailable; install "
+                f"agentgit-adapter to use safe defaults{detail}"
+            ),
+        }
 
 
 def _canonical_json(obj: Any) -> str:
@@ -27,7 +95,19 @@ def _now_ms() -> int:
 class AgentGitCallbackHandler(BaseCallbackHandler):
     """Records LangChain agent runs as content-addressed commits in an AgentGit repo."""
 
-    def __init__(self, repo_path: str) -> None:
+    def __init__(
+        self,
+        repo_path: str,
+        guards: Union[Sequence[Any], bool, None] = None,
+    ) -> None:
+        """LangChain callback that records agent runs into an AgentGit repo.
+
+        ``guards`` mirrors `wrapAgentJS({ guards })`:
+          - ``None`` (default): apply ConfirmationGuard + SnapshotGuard,
+            configured from ``.agentgit/config.json`` if present.
+          - ``False``: no guards run.
+          - ``Sequence``: full override.
+        """
         super().__init__()
         self.repo_path = os.path.abspath(repo_path)
         self.agentgit_dir = os.path.join(self.repo_path, ".agentgit")
@@ -35,6 +115,8 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         self._session_head: Optional[str] = None
         self._pending_tool: Optional[Dict[str, Any]] = None
         self._pending_llm: Optional[Dict[str, Any]] = None
+        self._guards_option = guards
+        self._guard_registry: Optional[Any] = None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -95,6 +177,52 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         if self._session_id is None:
             self._ensure_init()
             self._open_session()
+        self._ensure_guard_registry()
+
+    def _ensure_guard_registry(self) -> None:
+        if self._guard_registry is not None:
+            return
+
+        opt = self._guards_option
+        if opt is False:
+            if GuardRegistry is None:
+                self._guard_registry = _NullRegistry()
+            else:
+                self._guard_registry = GuardRegistry([])
+            return
+        if isinstance(opt, (list, tuple)):
+            registry_cls = GuardRegistry or _LocalRegistry
+            self._guard_registry = registry_cls(list(opt))
+            return
+
+        if GuardRegistry is None or build_default_guards is None:
+            self._guard_registry = _FailClosedRegistry(_GUARD_IMPORT_ERROR)
+            return
+
+        config_path = os.path.join(self.agentgit_dir, "config.json")
+        config: Dict[str, Any] = {}
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f) or {}
+            except (json.JSONDecodeError, OSError):
+                config = {}
+
+        def write_blob(content: str) -> str:
+            size = len(content.encode("utf-8"))
+            return self._hash_and_write(
+                {
+                    "content": content,
+                    "encoding": "utf-8",
+                    "mimeType": None,
+                    "size": size,
+                    "type": "blob",
+                }
+            )
+
+        self._guard_registry = GuardRegistry(
+            build_default_guards(config, write_blob=write_blob)
+        )
 
     def _record_commit(
         self,
@@ -183,7 +311,10 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
     def on_tool_start(
         self, serialized: Dict[str, Any], input_str: str, **kwargs: Any
     ) -> None:
-        self._pending_tool = {
+        # Resolving guards eagerly here (not lazily in on_tool_end) lets a
+        # blocking guard raise before LangChain dispatches to the real tool.
+        self._ensure_session()
+        pending = {
             "id": str(uuid.uuid4()),
             "name": serialized.get("name", "unknown"),
             "input": self._parse_tool_input(input_str, kwargs),
@@ -194,11 +325,25 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
             "error": None,
         }
 
+        assert self._guard_registry is not None
+        guard_result = self._guard_registry.run(pending)
+        if guard_result.get("outcome") == "block":
+            reason = guard_result.get("reason") or "no reason given"
+            self._pending_tool = None
+            raise RuntimeError(
+                f"Tool call '{pending['name']}' blocked by guard: {reason}"
+            )
+        snapshot_hash = guard_result.get("snapshot_hash")
+        if snapshot_hash is not None:
+            pending["_snapshotHash"] = snapshot_hash  # type: ignore[assignment]
+        self._pending_tool = pending
+
     def on_tool_end(self, output: Any, **kwargs: Any) -> None:
         pending, self._pending_tool = self._pending_tool, None
         if pending is None:
             return
         self._ensure_session()
+        snapshot_hash = pending.pop("_snapshotHash", None)
         output_str = output if isinstance(output, str) else str(output)
         tool_call = {
             **pending,
@@ -206,7 +351,12 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
             "completedAt": _now_ms(),
             "status": "success",
         }
-        self._record_commit(message=f'tool: {tool_call["name"]}', tool_call=tool_call)
+        metadata = {"snapshotHash": snapshot_hash} if snapshot_hash is not None else None
+        self._record_commit(
+            message=f'tool: {tool_call["name"]}',
+            tool_call=tool_call,
+            metadata=metadata,
+        )
 
     def on_tool_error(
         self, error: Union[Exception, KeyboardInterrupt], **kwargs: Any
@@ -215,6 +365,7 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         if pending is None:
             return
         self._ensure_session()
+        snapshot_hash = pending.pop("_snapshotHash", None)
         tool_call = {
             **pending,
             "output": None,
@@ -222,8 +373,11 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
             "status": "error",
             "error": str(error),
         }
+        metadata = {"snapshotHash": snapshot_hash} if snapshot_hash is not None else None
         self._record_commit(
-            message=f'tool error: {tool_call["name"]}', tool_call=tool_call
+            message=f'tool error: {tool_call["name"]}',
+            tool_call=tool_call,
+            metadata=metadata,
         )
 
     def on_llm_start(

@@ -1,6 +1,11 @@
 import Database from "better-sqlite3";
-import { SCHEMA_DDL } from "./schema.js";
+import {
+  migrationStatus,
+  runMigrations,
+  type MigrationStatus,
+} from "./migrations/index.js";
 import type {
+  Author,
   Blob,
   Commit,
   Hash,
@@ -35,6 +40,10 @@ interface CommitRow {
   message: string;
   tool_call: string | null;
   metadata: string;
+  author_name: string | null;
+  author_email: string | null;
+  signature: string | null;
+  public_key: string | null;
 }
 
 interface BlobRow {
@@ -73,7 +82,17 @@ export class SqliteIndex {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
-    this.db.exec(SCHEMA_DDL);
+    runMigrations(this.db);
+  }
+
+  /** Inspect the migration state of this DB without applying anything. */
+  migrationStatus(): MigrationStatus {
+    return migrationStatus(this.db);
+  }
+
+  /** Re-run pending migrations (idempotent when DB is already up to date). */
+  migrate(): MigrationStatus {
+    return runMigrations(this.db);
   }
 
   /** Wrap fn in a SQLite transaction; re-throws on error and rolls back. */
@@ -135,8 +154,13 @@ export class SqliteIndex {
   insertCommit(commit: Commit): void {
     this.db
       .prepare(
-        `INSERT INTO commits (hash, tree, parent, session_id, timestamp, message, tool_call, metadata)
-         VALUES (@hash, @tree, @parent, @session_id, @timestamp, @message, @tool_call, @metadata)`,
+        `INSERT INTO commits (
+           hash, tree, parent, session_id, timestamp, message, tool_call, metadata,
+           author_name, author_email, signature, public_key
+         ) VALUES (
+           @hash, @tree, @parent, @session_id, @timestamp, @message, @tool_call, @metadata,
+           @author_name, @author_email, @signature, @public_key
+         )`,
       )
       .run({
         hash: commit.hash,
@@ -147,6 +171,10 @@ export class SqliteIndex {
         message: commit.message,
         tool_call: commit.toolCall !== null ? JSON.stringify(commit.toolCall) : null,
         metadata: JSON.stringify(commit.metadata),
+        author_name: commit.author?.name ?? null,
+        author_email: commit.author?.email ?? null,
+        signature: commit.signature,
+        public_key: commit.publicKey,
       });
   }
 
@@ -318,6 +346,10 @@ function rowToSession(row: SessionRow): Session {
 }
 
 function rowToCommit(row: CommitRow): Commit {
+  const author: Author | null =
+    row.author_name !== null && row.author_email !== null
+      ? { name: row.author_name, email: row.author_email }
+      : null;
   return {
     hash: row.hash,
     type: "commit",
@@ -330,6 +362,9 @@ function rowToCommit(row: CommitRow): Commit {
       ? (JSON.parse(row.tool_call) as ToolCall)
       : null,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
+    author,
+    signature: row.signature,
+    publicKey: row.public_key,
   };
 }
 

@@ -45,6 +45,9 @@ function makeCommit(sessionId: string, hash = HASH2, parent: string | null = nul
     message: "test commit",
     toolCall: null,
     metadata: {},
+    author: null,
+    signature: null,
+    publicKey: null,
   };
 }
 

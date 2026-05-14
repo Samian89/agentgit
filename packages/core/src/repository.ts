@@ -5,7 +5,10 @@ import { ObjectStore } from "./object-store.js";
 import { CommitGraph } from "./commit-graph.js";
 import { RefStore } from "./ref-store.js";
 import { SqliteIndex } from "./sqlite-index.js";
+import { loadConfig, resolveAuthor } from "./config.js";
+import { signMessage, verifyMessage } from "./signing.js";
 import type {
+  Author,
   Blob,
   Commit,
   DiffEntry,
@@ -44,6 +47,11 @@ export interface CommitInput {
   metadata?: Record<string, unknown>;
   /** Explicit parent hash. If omitted, the session's current head is used. */
   parentHash?: Hash | null;
+  /**
+   * Override committer identity. When omitted, the identity from
+   * .agentgit/config.json is used (or null if no identity is configured).
+   */
+  author?: Author | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,6 +153,16 @@ export class Repository {
         ? (input.parentHash ?? null)
         : (this.index.getSession(sessionId)?.head ?? null);
 
+    // Resolve author + signing context from config (unless input overrides author).
+    const config = loadConfig(this.agentgitDir);
+    const author: Author | null =
+      "author" in input ? (input.author ?? null) : resolveAuthor(config);
+    const signing = config.signing;
+    const shouldSign =
+      signing?.enabled !== false &&
+      typeof signing?.privateKey === "string" &&
+      typeof signing?.publicKey === "string";
+
     // Build blobs and tree entries
     const blobs: Blob[] = [];
     const treeEntries: TreeEntry[] = [];
@@ -175,7 +193,7 @@ export class Repository {
     const treeHash = this.objects.write(treeBody as Record<string, unknown>);
 
     // Build and write commit
-    const commitBody: Omit<Commit, "hash"> = {
+    const commitBody: Omit<Commit, "hash" | "signature" | "publicKey"> = {
       type: "commit",
       tree: treeHash,
       parent: parentHash,
@@ -184,9 +202,23 @@ export class Repository {
       message,
       toolCall,
       metadata,
+      author,
     };
     const commitHash = this.objects.write(commitBody as Record<string, unknown>);
-    const fullCommit: Commit = { hash: commitHash, ...commitBody };
+
+    let signature: string | null = null;
+    let publicKey: string | null = null;
+    if (shouldSign) {
+      signature = signMessage(commitHash, signing!.privateKey!);
+      publicKey = signing!.publicKey!;
+    }
+
+    const fullCommit: Commit = {
+      hash: commitHash,
+      ...commitBody,
+      signature,
+      publicKey,
+    };
 
     // Persist to SQLite atomically
     this.index.transaction(() => {
@@ -299,5 +331,46 @@ export class Repository {
   /** Compute the SHA-256 hash for an arbitrary object (exposed for testing). */
   static hashObject(obj: Record<string, unknown>): Hash {
     return sha256(obj);
+  }
+
+  // --------------------------------------------------------------------------
+  // Signature verification
+  // --------------------------------------------------------------------------
+
+  /**
+   * Verify a commit's Ed25519 signature and content hash.
+   *
+   * Returns:
+   *   - `unsigned`   — commit exists but has no signature attached.
+   *   - `not-found`  — no commit with that hash is recorded.
+   *   - `tampered`   — the stored object's hash doesn't match its content
+   *                    (object body was modified after writing).
+   *   - `invalid`    — signature does not verify against the public key.
+   *   - `valid`      — content hash matches AND signature verifies.
+   */
+  verifyCommit(hash: Hash): {
+    status: "valid" | "invalid" | "tampered" | "unsigned" | "not-found";
+    commit: Commit | null;
+  } {
+    const commit = this.index.getCommit(hash);
+    if (!commit) return { status: "not-found", commit: null };
+
+    // Re-hash the commit from SQLite data to detect row-level tampering.
+    // sha256 strips hash/signature/publicKey before hashing, so this checks
+    // all content fields (message, author, toolCall, metadata, …).
+    const recomputedFromIndex = sha256(commit as unknown as Record<string, unknown>);
+    if (recomputedFromIndex !== hash) return { status: "tampered", commit };
+
+    // Also verify the object-store file to detect file-level tampering.
+    if (!this.objects.has(hash)) return { status: "tampered", commit };
+    const objectBody = this.objects.read(hash);
+    const recomputedFromStore = sha256(objectBody);
+    if (recomputedFromStore !== hash) return { status: "tampered", commit };
+
+    if (!commit.signature || !commit.publicKey) {
+      return { status: "unsigned", commit };
+    }
+    const ok = verifyMessage(hash, commit.signature, commit.publicKey);
+    return { status: ok ? "valid" : "invalid", commit };
   }
 }

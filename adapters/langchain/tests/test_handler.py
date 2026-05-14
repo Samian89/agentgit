@@ -6,7 +6,7 @@ from langchain_core.agents import AgentAction, AgentFinish
 from langchain_core.outputs import Generation, LLMResult
 
 from agentgit_langchain import AgentGitCallbackHandler
-from tests.conftest import db_rows
+from .conftest import db_rows
 
 
 # ---------------------------------------------------------------------------

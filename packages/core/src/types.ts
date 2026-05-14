@@ -97,6 +97,12 @@ export interface ToolCall {
 // Commit — single agent step / action record
 // ---------------------------------------------------------------------------
 
+/** Committer identity recorded on each commit (from .agentgit/config.json). */
+export interface Author {
+  name: string;
+  email: string;
+}
+
 export interface Commit {
   hash: Hash;
   type: "commit";
@@ -114,6 +120,12 @@ export interface Commit {
   toolCall: ToolCall | null;
   /** Arbitrary key-value metadata (agent version, model, environment, etc.). */
   metadata: Record<string, unknown>;
+  /** Committer identity; null when no identity is configured. */
+  author: Author | null;
+  /** Base64 Ed25519 signature of `hash`; null when commit is unsigned. */
+  signature: string | null;
+  /** Base64 Ed25519 public key matching `signature`; null when unsigned. */
+  publicKey: string | null;
 }
 
 // ---------------------------------------------------------------------------

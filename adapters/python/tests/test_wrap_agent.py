@@ -4,7 +4,7 @@ import os
 import pytest
 
 from agentgit_adapter import AgentWrapper, wrap_agent
-from tests.conftest import ErrorAgent, MockAgent, db_rows
+from .conftest import ErrorAgent, MockAgent, db_rows
 
 
 class TestWrapAgent:

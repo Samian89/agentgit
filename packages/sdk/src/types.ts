@@ -12,8 +12,15 @@ export interface WrapOptions {
   sessionName?: string;
   /** Additional metadata attached to the session record. */
   sessionMetadata?: Record<string, unknown>;
-  /** Guards to run before each intercepted tool call. */
-  guards?: Guard[];
+  /**
+   * Guards to run before each intercepted tool call.
+   *
+   * - `undefined` (default): apply the default `ConfirmationGuard` +
+   *   `SnapshotGuard` configured from `.agentgit/config.json`.
+   * - `false`: explicit opt-out — no guards run.
+   * - `Guard[]`: full override — exactly these guards run.
+   */
+  guards?: Guard[] | false;
 }
 
 export type WrappedAgent<T extends AgentLike> = T & {

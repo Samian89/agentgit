@@ -15,4 +15,8 @@ export { SnapshotGuard } from "./snapshot-guard.js";
 export type { SnapshotGuardOptions } from "./snapshot-guard.js";
 
 export { GuardRegistry } from "./registry.js";
-export { loadGuards, loadGuardsFromFile } from "./load-guards.js";
+export {
+  loadGuards,
+  loadGuardsFromFile,
+  buildDefaultGuards,
+} from "./load-guards.js";

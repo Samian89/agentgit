@@ -14,6 +14,10 @@ const DEFAULT_WRITE_TOOLS = [
 export interface SnapshotGuardOptions {
   objectStore: ObjectStore;
   writeTools?: string[];
+  /**
+   * Skip snapshotting files larger than this size (bytes). Default: no limit.
+   */
+  maxBlobBytes?: number;
   /** Injectable file reader — defaults to fs.readFile. */
   readFileFn?: ReadFileFn;
 }
@@ -22,11 +26,13 @@ export class SnapshotGuard implements Guard {
   readonly name = "SnapshotGuard";
   private readonly objectStore: ObjectStore;
   private readonly writeTools: Set<string>;
+  private readonly maxBlobBytes: number | null;
   private readonly readFileFn: ReadFileFn;
 
   constructor(options: SnapshotGuardOptions) {
     this.objectStore = options.objectStore;
     this.writeTools = new Set(options.writeTools ?? DEFAULT_WRITE_TOOLS);
+    this.maxBlobBytes = options.maxBlobBytes ?? null;
     this.readFileFn = options.readFileFn ?? defaultReadFile;
   }
 
@@ -49,10 +55,16 @@ export class SnapshotGuard implements Guard {
       return { outcome: "allow" };
     }
 
+    const size = Buffer.byteLength(content, "utf-8");
+    if (this.maxBlobBytes !== null && size > this.maxBlobBytes) {
+      // Too large to snapshot — proceed without recording.
+      return { outcome: "allow" };
+    }
+
     const snapshotHash = store.write({
       type: "blob",
       content,
-      size: Buffer.byteLength(content, "utf-8"),
+      size,
       encoding: "utf-8",
       mimeType: null,
     });

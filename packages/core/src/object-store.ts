@@ -25,15 +25,17 @@ export class ObjectStore {
    * The `hash` field is stripped before computing the canonical digest.
    */
   write(obj: Record<string, unknown>): Hash {
-    const withoutHash = Object.fromEntries(
-      Object.entries(obj).filter(([k]) => k !== "hash"),
+    const stripped = Object.fromEntries(
+      Object.entries(obj).filter(
+        ([k]) => k !== "hash" && k !== "signature" && k !== "publicKey",
+      ),
     );
-    const hash = sha256(withoutHash);
+    const hash = sha256(stripped);
     const path = this.objectPath(hash);
 
     if (!existsSync(path)) {
       mkdirSync(join(this.objectsDir, hash.slice(0, 2)), { recursive: true });
-      writeFileSync(path, canonicalJson(withoutHash), "utf8");
+      writeFileSync(path, canonicalJson(stripped), "utf8");
     }
 
     return hash;

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { Hash, ToolCall, ToolCallStatus } from "@agentgit/core";
-import { GuardRegistry, Repository } from "@agentgit/core";
+import type { Guard, Hash, ToolCall, ToolCallStatus } from "@agentgit/core";
+import {
+  GuardRegistry,
+  Repository,
+  buildDefaultGuards,
+  loadConfig,
+} from "@agentgit/core";
 import type { AgentLike, WrapOptions, WrappedAgent } from "./types.js";
 
 /**
@@ -41,7 +46,20 @@ export function wrapAgentJS<T extends AgentLike>(
     options?.sessionName ?? "session",
     options?.sessionMetadata ?? {},
   );
-  const guardRegistry = new GuardRegistry(options?.guards ?? []);
+
+  // Resolve the guard chain.
+  //   undefined → default-on: ConfirmationGuard + SnapshotGuard, tuned by config.
+  //   false     → explicit opt-out: no guards run.
+  //   Guard[]   → full override: exactly the provided array.
+  let guards: Guard[];
+  if (options?.guards === false) {
+    guards = [];
+  } else if (Array.isArray(options?.guards)) {
+    guards = options.guards;
+  } else {
+    guards = buildDefaultGuards(loadConfig(repoDir), repo.objects);
+  }
+  const guardRegistry = new GuardRegistry(guards);
 
   let parentHash: Hash | null = null;
 

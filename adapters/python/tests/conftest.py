@@ -1,7 +1,13 @@
 import os
 import sqlite3
+import sys
+from pathlib import Path
 
 import pytest
+
+ADAPTER_ROOT = Path(__file__).resolve().parents[1]
+if str(ADAPTER_ROOT) not in sys.path:
+    sys.path.insert(0, str(ADAPTER_ROOT))
 
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS sessions (

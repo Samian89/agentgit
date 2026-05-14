@@ -10,6 +10,7 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 dependencies = [
     "langchain-core>=0.2.0",
+    "agentgit-adapter>=0.1.0",
 ]
 
 [project.optional-dependencies]
@@ -21,3 +22,10 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["agentgit_langchain*"]
+
+# The langsmith pytest entry-point plugin is broken on Python 3.12 + pydantic v1
+# (ForwardRef._evaluate signature mismatch). Disable it so the project test
+# command — `pytest adapters/langchain` — runs without env-var workarounds.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:langsmith_plugin"

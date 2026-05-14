@@ -5,7 +5,10 @@ import sqlite3
 import subprocess
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
+
+from agentgit_adapter.guards import GuardRegistry, build_default_guards
+from agentgit_adapter.migrations import run_migrations
 
 
 def _canonical_json(obj: Any) -> str:
@@ -20,106 +23,63 @@ def _now_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
 
 
-_SCHEMA_DDL = """
-CREATE TABLE IF NOT EXISTS sessions (
-    id          TEXT    NOT NULL PRIMARY KEY,
-    name        TEXT    NOT NULL,
-    status      TEXT    NOT NULL DEFAULT 'active'
-                        CHECK (status IN ('active', 'completed', 'failed', 'abandoned')),
-    head        TEXT    REFERENCES commits(hash) ON DELETE SET NULL,
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL,
-    metadata    TEXT    NOT NULL DEFAULT '{}'
-);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_status     ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at);
-
-CREATE TABLE IF NOT EXISTS commits (
-    hash        TEXT    NOT NULL PRIMARY KEY,
-    tree        TEXT    NOT NULL,
-    parent      TEXT    REFERENCES commits(hash) ON DELETE RESTRICT,
-    session_id  TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    timestamp   INTEGER NOT NULL,
-    message     TEXT    NOT NULL,
-    tool_call   TEXT,
-    metadata    TEXT    NOT NULL DEFAULT '{}'
-);
-
-CREATE INDEX IF NOT EXISTS idx_commits_session_id ON commits(session_id);
-CREATE INDEX IF NOT EXISTS idx_commits_parent     ON commits(parent);
-CREATE INDEX IF NOT EXISTS idx_commits_timestamp  ON commits(timestamp);
-
-CREATE TABLE IF NOT EXISTS blobs (
-    hash        TEXT    NOT NULL PRIMARY KEY,
-    size        INTEGER NOT NULL,
-    mime_type   TEXT,
-    encoding    TEXT    NOT NULL DEFAULT 'base64'
-                        CHECK (encoding IN ('base64', 'utf-8'))
-);
-
-CREATE TABLE IF NOT EXISTS refs (
-    name        TEXT    NOT NULL PRIMARY KEY,
-    target      TEXT    NOT NULL REFERENCES commits(hash) ON DELETE RESTRICT,
-    type        TEXT    NOT NULL DEFAULT 'branch'
-                        CHECK (type IN ('branch', 'tag', 'session-head')),
-    updated_at  INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_refs_target ON refs(target);
-CREATE INDEX IF NOT EXISTS idx_refs_type   ON refs(type);
-
-CREATE TABLE IF NOT EXISTS tree_entries (
-    tree_hash   TEXT    NOT NULL,
-    path        TEXT    NOT NULL,
-    blob_hash   TEXT    NOT NULL REFERENCES blobs(hash) ON DELETE RESTRICT,
-    size        INTEGER NOT NULL,
-    PRIMARY KEY (tree_hash, path)
-);
-
-CREATE INDEX IF NOT EXISTS idx_tree_entries_blob_hash ON tree_entries(blob_hash);
-"""
-
-
 class AgentWrapper:
     """Wraps any Python agent to record tool calls as AgentGit commits."""
 
-    def __init__(self, agent: Any, repo_path: str) -> None:
+    def __init__(
+        self,
+        agent: Any,
+        repo_path: str,
+        guards: Union[Sequence[Any], bool, None] = None,
+    ) -> None:
+        """Wrap a Python agent to record tool calls as AgentGit commits.
+
+        ``guards`` mirrors the TS `wrapAgentJS(agent, { guards })` semantics:
+          - ``None`` (default): apply `ConfirmationGuard` + `SnapshotGuard`,
+            configured from `.agentgit/config.json` if present.
+          - ``False``: explicit opt-out — no guards run.
+          - ``Sequence``: full override — exactly these guards run.
+        """
         self._agent = agent
         self.repo_path = os.path.abspath(repo_path)
         self.agentgit_dir = os.path.join(self.repo_path, ".agentgit")
         self._session_id: Optional[str] = None
         self._session_head: Optional[str] = None
+        self._guards_option = guards
+        self._guard_registry: Optional[GuardRegistry] = None
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
     def _ensure_init(self) -> None:
-        if os.path.isdir(self.agentgit_dir):
-            return
-        # Try CLI first; fall back to direct initialization if unavailable.
-        try:
-            result = subprocess.run(
-                ["agentgit", "init", self.repo_path],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return
-        except FileNotFoundError:
-            pass
-        objects_dir = os.path.join(self.agentgit_dir, "objects")
-        refs_dir = os.path.join(self.agentgit_dir, "refs")
-        os.makedirs(objects_dir, exist_ok=True)
-        os.makedirs(refs_dir, exist_ok=True)
-        with open(os.path.join(self.agentgit_dir, "HEAD"), "w", encoding="utf-8") as fh:
-            fh.write("ref: refs/sessions/main")
+        existed = os.path.isdir(self.agentgit_dir)
+        if not existed:
+            # Try CLI first; fall back to direct initialization if unavailable.
+            try:
+                subprocess.run(
+                    ["agentgit", "init", self.repo_path],
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError:
+                pass
+            objects_dir = os.path.join(self.agentgit_dir, "objects")
+            refs_dir = os.path.join(self.agentgit_dir, "refs")
+            os.makedirs(objects_dir, exist_ok=True)
+            os.makedirs(refs_dir, exist_ok=True)
+            head_file = os.path.join(self.agentgit_dir, "HEAD")
+            if not os.path.exists(head_file):
+                with open(head_file, "w", encoding="utf-8") as fh:
+                    fh.write("ref: refs/sessions/main")
+        # Apply migrations regardless of whether the CLI or a previous call
+        # already initialised the directory — run_migrations is idempotent and
+        # also upgrades legacy v0.1 fixtures to the current target version.
         conn = sqlite3.connect(os.path.join(self.agentgit_dir, "index.db"))
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA foreign_keys=ON")
-            conn.executescript(_SCHEMA_DDL)
+            run_migrations(conn)
         finally:
             conn.close()
 
@@ -168,6 +128,52 @@ class AgentWrapper:
         if self._session_id is None:
             self._ensure_init()
             self._open_session()
+        self._ensure_guard_registry()
+
+    def _ensure_guard_registry(self) -> None:
+        """Resolve the guard chain.
+
+        Defers loading config-derived defaults until after `.agentgit/` exists
+        (i.e. inside `_ensure_init`) so the JSON file is read from its final
+        location, not from a phantom path during construction.
+        """
+        if self._guard_registry is not None:
+            return
+
+        opt = self._guards_option
+        if opt is False:
+            self._guard_registry = GuardRegistry([])
+            return
+        if isinstance(opt, (list, tuple)):
+            self._guard_registry = GuardRegistry(list(opt))
+            return
+
+        config_path = os.path.join(self.agentgit_dir, "config.json")
+        config: Dict[str, Any] = {}
+        if os.path.isfile(config_path):
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    config = json.load(f) or {}
+            except (json.JSONDecodeError, OSError):
+                config = {}
+
+        # write_blob: persist a snapshot blob through the adapter's own
+        # `_hash_and_write` so the file lands in `.agentgit/objects/<xx>/<...>`.
+        def write_blob(content: str) -> str:
+            size = len(content.encode("utf-8"))
+            return self._hash_and_write(
+                {
+                    "content": content,
+                    "encoding": "utf-8",
+                    "mimeType": None,
+                    "size": size,
+                    "type": "blob",
+                }
+            )
+
+        self._guard_registry = GuardRegistry(
+            build_default_guards(config, write_blob=write_blob)
+        )
 
     def _record_commit(
         self,
@@ -177,7 +183,13 @@ class AgentWrapper:
     ) -> str:
         tree_hash = self._empty_tree_hash()
         now = _now_ms()
+        # The canonical commit body must match exactly what the TypeScript
+        # core writes (see packages/core/src/repository.ts) so that a TS
+        # verify on the same hash produces the same digest. The `author`
+        # field is part of the hashed body even when null; omitting it here
+        # would cause TS verify to report "tampered" on Python-written commits.
         commit_obj = {
+            "author": None,
             "message": message,
             "metadata": metadata or {},
             "parent": self._session_head,
@@ -191,10 +203,14 @@ class AgentWrapper:
 
         conn = self._db()
         try:
+            # Insert into the full v2 schema: include author_name, author_email,
+            # signature, public_key columns explicitly so the row is canonical
+            # and round-trips identically through TS Repository.verifyCommit.
             conn.execute(
                 "INSERT OR IGNORE INTO commits"
-                " (hash, tree, parent, session_id, timestamp, message, tool_call, metadata)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                " (hash, tree, parent, session_id, timestamp, message, tool_call, metadata,"
+                "  author_name, author_email, signature, public_key)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     commit_hash,
                     tree_hash,
@@ -204,6 +220,10 @@ class AgentWrapper:
                     message,
                     json.dumps(tool_call) if tool_call is not None else None,
                     json.dumps(metadata or {}),
+                    None,  # author_name
+                    None,  # author_email
+                    None,  # signature
+                    None,  # public_key
                 ),
             )
             conn.execute(
@@ -245,6 +265,31 @@ class AgentWrapper:
         for k, v in kwargs.items():
             input_data[k] = self._serialize_value(v)
 
+        # Guard chain: a blocking guard prevents the underlying agent from
+        # being invoked at all and surfaces as a Python exception, matching
+        # the TS `Tool call '...' blocked by guard: ...` error shape.
+        assert self._guard_registry is not None
+        pending_tool_call: Dict[str, Any] = {
+            "id": tool_call_id,
+            "name": name,
+            "input": input_data,
+            "output": None,
+            "startedAt": started_at,
+            "completedAt": None,
+            "status": "pending",
+            "error": None,
+        }
+        guard_result = self._guard_registry.run(pending_tool_call)
+        if guard_result.get("outcome") == "block":
+            reason = guard_result.get("reason") or "no reason given"
+            raise RuntimeError(
+                f"Tool call '{name}' blocked by guard: {reason}"
+            )
+        snapshot_hash = guard_result.get("snapshot_hash")
+        metadata: Optional[Dict[str, Any]] = (
+            {"snapshotHash": snapshot_hash} if snapshot_hash is not None else None
+        )
+
         try:
             result = self._agent(*args, **kwargs)
             tool_call: Dict[str, Any] = {
@@ -257,7 +302,9 @@ class AgentWrapper:
                 "startedAt": started_at,
                 "status": "success",
             }
-            self._record_commit(message=f"tool: {name}", tool_call=tool_call)
+            self._record_commit(
+                message=f"tool: {name}", tool_call=tool_call, metadata=metadata
+            )
             return result
         except Exception as exc:
             tool_call = {
@@ -270,7 +317,9 @@ class AgentWrapper:
                 "startedAt": started_at,
                 "status": "error",
             }
-            self._record_commit(message=f"tool error: {name}", tool_call=tool_call)
+            self._record_commit(
+                message=f"tool error: {name}", tool_call=tool_call, metadata=metadata
+            )
             raise
 
     def finish(self, status: str = "completed") -> None:
@@ -299,14 +348,20 @@ class AgentWrapper:
         self.finish("failed" if exc_type is not None else "completed")
 
 
-def wrap_agent(agent: Any, repo_path: str) -> AgentWrapper:
+def wrap_agent(
+    agent: Any,
+    repo_path: str,
+    guards: Union[Sequence[Any], bool, None] = None,
+) -> AgentWrapper:
     """Wrap any Python agent to record tool calls as AgentGit commits.
 
     Args:
         agent: Any Python object with a __call__ method.
         repo_path: Path to the AgentGit repository root.
+        guards: ``None`` (default) → ConfirmationGuard + SnapshotGuard;
+                ``False`` → no guards; sequence → exactly those guards.
 
     Returns:
         AgentWrapper that records a commit on each __call__.
     """
-    return AgentWrapper(agent, repo_path)
+    return AgentWrapper(agent, repo_path, guards=guards)
