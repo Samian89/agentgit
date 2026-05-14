@@ -20,15 +20,14 @@ directory; there is no daemon and no server.
 
 ```
 .agentgit/
-├── HEAD                 # "ref: refs/sessions/<id>" or a bare commit hash
+├── HEAD                 # created by init; "ref: refs/sessions/main" or a hash
 ├── config.json          # user identity + optional signing keys
 ├── index.db             # SQLite metadata index (WAL mode)
 ├── index.db-wal         # write-ahead log (transient)
 ├── index.db-shm         # shared-memory file (transient)
 ├── refs/
-│   ├── main             # plain-text file containing a commit hash
 │   └── sessions/
-│       └── <session-id> # ditto
+│       └── <branch-name> # written by `agentgit branch`; contains a commit hash
 └── objects/
     ├── 3a/
     │   └── f4e1...b9    # commit, tree, or blob — sharded by first 2 hex chars
@@ -68,7 +67,7 @@ of the object (without the `hash` / `signature` / `publicKey` fields).
 | -------- | ---------------------------------------------------- | ---------------------------- |
 | `blob`   | A single file's bytes (base64 or utf-8) + metadata   | `Tree.entries[].blobHash`    |
 | `tree`   | A flat list of `(path, blobHash, size)` entries      | `Commit.tree`                |
-| `commit` | A pointer to a tree, a parent commit, and a toolCall | `Ref.target`, `Session.head` |
+| `commit` | A pointer to a tree, a parent commit, and a toolCall | `Session.head`, `Ref.target` |
 
 Writes are idempotent — `ObjectStore.write` skips the filesystem write when the
 target path already exists (`packages/core/src/object-store.ts`). This is what
@@ -81,10 +80,18 @@ row pointing at an object that was never written.
 ### Refs and HEAD
 
 Refs are plain files under `refs/`. Each file contains a single commit hash;
-the file name is the ref name (`main`, `sessions/<id>`, `v1.0.0`, …). The
-top-level `HEAD` file is either the literal string `ref: refs/sessions/<id>`
-(symbolic) or a bare 64-char hash (detached). This mirrors git's layout
-closely enough that anyone who has read `.git/` once will be at home.
+the file name is the ref name (`sessions/main`, `sessions/feature-x`,
+`tags/v1.0.0`, and so on). The top-level `HEAD` file is either the literal
+string `ref: refs/sessions/<name>` (symbolic) or a bare 64-char hash
+(detached).
+
+One implementation detail matters when debugging stores: **session heads live
+in SQLite first.** `agentgit init` writes `HEAD` as `ref: refs/sessions/main`,
+but `Repository.commit()` advances `sessions.head`; it does not rewrite
+`HEAD`, create a session ref file, or upsert a `refs` row. `agentgit branch`
+is the path that writes both the file ref (`refs/sessions/<name>`) and the
+matching SQLite `refs` row. `log`, `replay`, and `export` therefore use
+`sessions.head` / `commits`, not `HEAD`, as the canonical session history.
 
 ## SQLite index
 
@@ -208,7 +215,7 @@ executed, and recorded as a child commit.
   │                       │                          │                      │      write tree│
   │                       │                          │                      │    write commit│
   │                       │                          │                      │      INSERT rows
-  │                       │                          │                      │     advance ref│
+  │                       │                          │                      │ update sessions.head
   │                       │  prompt commit hash                                              │
   │                       │<──────────────────────────────────────────────────────────────────┤
   │                       │  parentHash = promptCommit.hash                                  │
@@ -230,7 +237,7 @@ executed, and recorded as a child commit.
   │                       ├──────────────────────────────────────────────────────────────────>│
   │                       │                          │                      │      write objs│
   │                       │                          │                      │     INSERT row │
-  │                       │                          │                      │     advance ref│
+  │                       │                          │                      │ update sessions.head
   │                       │  tool-call commit hash                                           │
   │                       │<──────────────────────────────────────────────────────────────────┤
   │                       │  parentHash = toolCommit.hash                                    │
@@ -250,8 +257,8 @@ Notes on the flow:
   internal `this.toolMethod()` calls inside `run` get trapped
   (`packages/sdk/src/wrap.ts:85-87`).
 - Each commit's `parent` is the previous commit's hash, so the session forms a
-  linear chain. Branching is implemented by pointing a new ref at any commit
-  in the chain and committing forward from there.
+  linear chain. Recording advances the SQLite `sessions.head`; explicit
+  branches are separate refs created with `agentgit branch`.
 - Object writes are deduplicated by the filesystem check in `ObjectStore`, so
   re-recording an identical state is essentially free.
 
@@ -276,9 +283,10 @@ ship a `canonicalJson` equivalent and test it against fixtures from
 
 ### Hash-field strip
 
-Before hashing, three fields are stripped from any object: `hash`, `signature`,
-`publicKey` (`packages/core/src/hash.ts` and
-`packages/core/src/object-store.ts:28-32`). This means:
+Before hashing, three **top-level** fields are stripped from object records:
+`hash`, `signature`, `publicKey` (`packages/core/src/hash.ts` and
+`packages/core/src/object-store.ts:28-32`). Nested metadata is content and is
+not filtered recursively. This means:
 
 - A commit's `hash` is computed over the commit minus its own `hash` field, so
   the field can be attached after the digest is computed without invalidating
@@ -289,7 +297,7 @@ Before hashing, three fields are stripped from any object: `hash`, `signature`,
 - `ObjectStore.write` strips the same fields before serialising to disk, so
   the on-disk JSON is the exact byte sequence that was hashed.
 
-If you add another derived field, add it to the strip-list in both
+If you add another derived top-level field, add it to the strip-list in both
 `packages/core/src/hash.ts` and `packages/core/src/object-store.ts` in
 lockstep — those two lists must stay identical.
 
@@ -326,7 +334,9 @@ Two details matter for maintenance scripts:
   `commits.session_id` is declared `ON DELETE CASCADE`.
 - `commits.tree` and `tree_entries.tree_hash` are plain text hashes, not FKs.
   Deleting commits never automatically deletes matching `tree_entries` rows or
-  tree object files; GC has to sweep those projections explicitly.
+  tree object files; GC has to sweep those projections explicitly. A manual GC
+  must delete `tree_entries` whose `tree_hash` no longer appears in `commits`
+  before it deletes orphaned `blobs` rows or unreferenced object files.
 
 When you write new code that mutates rows in these tables, do it through the
 `Repository` API rather than touching `SqliteIndex` directly — the repository

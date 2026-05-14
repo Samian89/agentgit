@@ -24,7 +24,8 @@ Hold an exclusive SQLite write lock in one terminal:
 
 ```bash
 node -e "
-const Database = require(require.resolve('better-sqlite3', { paths: [process.cwd()] }));
+const path = require('path');
+const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
 const db = new Database('.agentgit/index.db');
 db.exec('BEGIN EXCLUSIVE');
 console.log('holding lock on pid', process.pid);
@@ -50,7 +51,8 @@ AgentGit uses:
 
 ```bash
 node -e "
-const Database = require(require.resolve('better-sqlite3', { paths: [process.cwd()] }));
+const path = require('path');
+const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
 const db = new Database('.agentgit/index.db');
 console.log(db.pragma('wal_checkpoint(TRUNCATE)'));
 console.log('integrity:', db.pragma('integrity_check', { simple: true }));
@@ -109,14 +111,22 @@ node -e "
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-const Database = require(require.resolve('better-sqlite3', { paths: [process.cwd()] }));
+const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
 
+const NON_CONTENT_FIELDS = new Set(['hash', 'signature', 'publicKey']);
+function stripTopLevel(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return v;
+  const out = {};
+  for (const [k, value] of Object.entries(v)) {
+    if (!NON_CONTENT_FIELDS.has(k)) out[k] = value;
+  }
+  return out;
+}
 function sortValue(v) {
   if (Array.isArray(v)) return v.map(sortValue);
   if (v && typeof v === 'object') {
     const out = {};
     for (const k of Object.keys(v).sort()) {
-      if (k === 'hash' || k === 'signature' || k === 'publicKey') continue;
       out[k] = sortValue(v[k]);
     }
     return out;
@@ -124,7 +134,7 @@ function sortValue(v) {
   return v;
 }
 function digest(v) {
-  return crypto.createHash('sha256').update(JSON.stringify(sortValue(v)), 'utf8').digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify(sortValue(stripTopLevel(v))), 'utf8').digest('hex');
 }
 function objectPath(hash) {
   return path.join('.agentgit', 'objects', hash.slice(0, 2), hash.slice(2));
@@ -175,7 +185,7 @@ index files aside and create an empty index:
 ```bash
 mkdir -p .agentgit/broken-index
 mv .agentgit/index.db* .agentgit/broken-index/
-agentgit migrate
+agentgit init .
 ```
 
 Existing object files and refs remain on disk, but old sessions will not appear
@@ -340,7 +350,8 @@ Export important sessions first:
 
 ```bash
 node -e "
-const Database = require(require.resolve('better-sqlite3', { paths: [process.cwd()] }));
+const path = require('path');
+const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
 const db = new Database('.agentgit/index.db', { readonly: true });
 for (const r of db.prepare(
   'SELECT s.id, s.name, s.status, COUNT(c.hash) AS commits ' +
@@ -358,13 +369,15 @@ Then use this maintenance script. It defaults to dry-run mode. The script
 avoids the known trap in this schema: deleting a session directly can fail
 because `commits.parent` is `ON DELETE RESTRICT`, and deleting commits does not
 remove `tree_entries` because `tree_entries.tree_hash` is not a foreign key.
+It deletes stale `tree_entries` before orphaned `blobs` rows, then unlinks
+unreferenced object files only after the SQLite transaction has committed.
 
 ```bash
 node -e "
 const dryRun = true; // set false after reviewing the dry-run output
 const fs = require('fs');
 const path = require('path');
-const Database = require(require.resolve('better-sqlite3', { paths: [process.cwd()] }));
+const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
 const db = new Database('.agentgit/index.db');
 db.pragma('foreign_keys = ON');
 
@@ -373,6 +386,17 @@ const hashRe = /^[a-f0-9]{64}$/;
 const placeholders = (n) => Array.from({ length: n }, () => '?').join(',');
 function objectPath(hash) {
   return path.join('.agentgit', 'objects', hash.slice(0, 2), hash.slice(2));
+}
+function listObjectHashes() {
+  const root = path.join('.agentgit', 'objects');
+  if (!fs.existsSync(root)) return [];
+  const hashes = [];
+  for (const shard of fs.readdirSync(root)) {
+    const dir = path.join(root, shard);
+    if (!fs.statSync(dir).isDirectory()) continue;
+    for (const file of fs.readdirSync(dir)) hashes.push(shard + file);
+  }
+  return hashes.filter((h) => hashRe.test(h));
 }
 function collectHashes(value, out) {
   if (typeof value === 'string') {
@@ -391,6 +415,99 @@ function deleteIn(table, column, values) {
   if (!values.length) return 0;
   return db.prepare('DELETE FROM ' + table + ' WHERE ' + column + ' IN (' + placeholders(values.length) + ')').run(...values).changes;
 }
+function commitsForSessions(ids) {
+  if (!ids.length) return [];
+  return db.prepare(
+    'SELECT hash, tree, session_id FROM commits WHERE session_id IN (' + placeholders(ids.length) + ')'
+  ).all(...ids);
+}
+function deletableSessionIds(candidateIds) {
+  const deletable = new Set(candidateIds);
+  while (deletable.size > 0) {
+    const rows = commitsForSessions([...deletable]);
+    if (rows.length === 0) break;
+    const hashes = rows.map((r) => r.hash);
+    const blocked = db.prepare(
+      'SELECT DISTINCT p.session_id AS session_id FROM commits child JOIN commits p ON child.parent = p.hash ' +
+      'WHERE p.hash IN (' + placeholders(hashes.length) + ') AND child.hash NOT IN (' + placeholders(hashes.length) + ')'
+    ).all(...hashes, ...hashes).map((r) => r.session_id);
+    const before = deletable.size;
+    for (const id of blocked) deletable.delete(id);
+    if (deletable.size === before) break;
+  }
+  return [...deletable];
+}
+function protectedHashesFromRemainingCommits() {
+  const protectedHashes = new Set();
+  for (const r of db.prepare('SELECT metadata, tool_call FROM commits').all()) {
+    try { collectHashes(JSON.parse(r.metadata || '{}'), protectedHashes); } catch {}
+    try { if (r.tool_call) collectHashes(JSON.parse(r.tool_call), protectedHashes); } catch {}
+  }
+  return protectedHashes;
+}
+function unreferencedObjects(protectedHashes) {
+  const live = new Set(protectedHashes);
+  for (const r of db.prepare('SELECT hash, tree FROM commits').all()) {
+    live.add(r.hash);
+    live.add(r.tree);
+  }
+  for (const r of db.prepare('SELECT tree_hash, blob_hash FROM tree_entries').all()) {
+    live.add(r.tree_hash);
+    live.add(r.blob_hash);
+  }
+  for (const r of db.prepare('SELECT hash FROM blobs').all()) live.add(r.hash);
+  return listObjectHashes().filter((h) => !live.has(h));
+}
+function orphanBlobHashes(protectedHashes) {
+  return db.prepare(
+    'SELECT hash FROM blobs WHERE NOT EXISTS (SELECT 1 FROM tree_entries WHERE tree_entries.blob_hash = blobs.hash)'
+  ).all().map((r) => r.hash).filter((h) => !protectedHashes.has(h));
+}
+function dryRunAnalysis(candidateIds, deletableIds, doomedRows) {
+  const doomedHashes = new Set(doomedRows.map((r) => r.hash));
+  const refs = doomedHashes.size
+    ? db.prepare('SELECT COUNT(*) AS n FROM refs WHERE target IN (' + placeholders(doomedHashes.size) + ')').get(...doomedHashes).n
+    : 0;
+  const remainingCommits = doomedHashes.size
+    ? db.prepare('SELECT hash, tree, metadata, tool_call FROM commits WHERE hash NOT IN (' + placeholders(doomedHashes.size) + ')').all(...doomedHashes)
+    : db.prepare('SELECT hash, tree, metadata, tool_call FROM commits').all();
+  const remainingTrees = new Set(remainingCommits.map((r) => r.tree));
+  const staleTreeEntries = remainingTrees.size
+    ? db.prepare('SELECT COUNT(*) AS n FROM tree_entries WHERE tree_hash NOT IN (' + placeholders(remainingTrees.size) + ')').get(...remainingTrees).n
+    : db.prepare('SELECT COUNT(*) AS n FROM tree_entries').get().n;
+  const remainingTreeEntries = remainingTrees.size
+    ? db.prepare('SELECT tree_hash, blob_hash FROM tree_entries WHERE tree_hash IN (' + placeholders(remainingTrees.size) + ')').all(...remainingTrees)
+    : [];
+  const remainingTreeBlobs = new Set(remainingTreeEntries.map((r) => r.blob_hash));
+  const protectedHashes = new Set();
+  for (const r of remainingCommits) {
+    try { collectHashes(JSON.parse(r.metadata || '{}'), protectedHashes); } catch {}
+    try { if (r.tool_call) collectHashes(JSON.parse(r.tool_call), protectedHashes); } catch {}
+  }
+  const blobRows = db.prepare('SELECT hash FROM blobs').all().map((r) => r.hash);
+  const orphanBlobs = blobRows.filter((h) => !remainingTreeBlobs.has(h) && !protectedHashes.has(h));
+  const remainingBlobRows = new Set(blobRows.filter((h) => !orphanBlobs.includes(h)));
+  const live = new Set(protectedHashes);
+  for (const r of remainingCommits) {
+    live.add(r.hash);
+    live.add(r.tree);
+  }
+  for (const r of remainingTreeEntries) {
+    live.add(r.tree_hash);
+    live.add(r.blob_hash);
+  }
+  for (const h of remainingBlobRows) live.add(h);
+  const objects = listObjectHashes().filter((h) => !live.has(h)).length;
+  return {
+    sessions: deletableIds.length,
+    commits: doomedHashes.size,
+    refs,
+    treeEntries: staleTreeEntries,
+    blobs: orphanBlobs.length,
+    objects,
+    blocked: candidateIds.length - deletableIds.length,
+  };
+}
 
 const tx = db.transaction(() => {
   const candidates = db.prepare(
@@ -399,28 +516,12 @@ const tx = db.transaction(() => {
   if (candidates.length === 0) return { sessions: 0, commits: 0, refs: 0, treeEntries: 0, blobs: 0, objects: 0, blocked: 0 };
 
   const candidateIds = candidates.map((s) => s.id);
-  const doomedRows = db.prepare(
-    'SELECT hash, tree, session_id FROM commits WHERE session_id IN (' + placeholders(candidateIds.length) + ')'
-  ).all(...candidateIds);
-  const externalChildren = doomedRows.length === 0 ? [] : db.prepare(
-    'SELECT DISTINCT p.session_id AS session_id FROM commits child JOIN commits p ON child.parent = p.hash ' +
-    'WHERE p.hash IN (' + placeholders(doomedRows.length) + ') AND child.session_id NOT IN (' + placeholders(candidateIds.length) + ')'
-  ).all(...doomedRows.map((r) => r.hash), ...candidateIds);
-  const blockedSessions = new Set(externalChildren.map((r) => r.session_id));
-  const deletableIds = candidateIds.filter((id) => !blockedSessions.has(id));
-  const deletable = doomedRows.filter((r) => !blockedSessions.has(r.session_id));
-  const doomed = new Set(deletable.map((r) => r.hash));
+  const deletableIds = deletableSessionIds(candidateIds);
+  const doomedRows = commitsForSessions(deletableIds);
+  const doomed = new Set(doomedRows.map((r) => r.hash));
 
   if (dryRun) {
-    return {
-      sessions: deletableIds.length,
-      commits: doomed.size,
-      refs: doomed.size ? db.prepare('SELECT COUNT(*) AS n FROM refs WHERE target IN (' + placeholders(doomed.size) + ')').get(...doomed).n : 0,
-      treeEntries: 0,
-      blobs: 0,
-      objects: 0,
-      blocked: blockedSessions.size,
-    };
+    return dryRunAnalysis(candidateIds, deletableIds, doomedRows);
   }
 
   let refs = 0;
@@ -446,41 +547,18 @@ const tx = db.transaction(() => {
     'DELETE FROM tree_entries WHERE NOT EXISTS (SELECT 1 FROM commits WHERE commits.tree = tree_entries.tree_hash)'
   ).run().changes;
 
-  const protectedHashes = new Set();
-  for (const r of db.prepare('SELECT metadata, tool_call FROM commits').all()) {
-    try { collectHashes(JSON.parse(r.metadata || '{}'), protectedHashes); } catch {}
-    try { if (r.tool_call) collectHashes(JSON.parse(r.tool_call), protectedHashes); } catch {}
-  }
-  const orphanBlobs = db.prepare(
-    'SELECT hash FROM blobs WHERE NOT EXISTS (SELECT 1 FROM tree_entries WHERE tree_entries.blob_hash = blobs.hash)'
-  ).all().map((r) => r.hash).filter((h) => !protectedHashes.has(h));
+  const protectedHashes = protectedHashesFromRemainingCommits();
+  const orphanBlobs = orphanBlobHashes(protectedHashes);
   const blobs = deleteIn('blobs', 'hash', orphanBlobs);
-
-  const live = new Set(protectedHashes);
-  for (const r of db.prepare('SELECT hash FROM commits').all()) live.add(r.hash);
-  for (const r of db.prepare('SELECT DISTINCT tree FROM commits').all()) live.add(r.tree);
-  for (const r of db.prepare('SELECT DISTINCT tree_hash FROM tree_entries').all()) live.add(r.tree_hash);
-  for (const r of db.prepare('SELECT DISTINCT blob_hash FROM tree_entries').all()) live.add(r.blob_hash);
-  for (const r of db.prepare('SELECT hash FROM blobs').all()) live.add(r.hash);
-
-  let objects = 0;
-  const root = path.join('.agentgit', 'objects');
-  for (const shard of fs.readdirSync(root)) {
-    const dir = path.join(root, shard);
-    if (!fs.statSync(dir).isDirectory()) continue;
-    for (const file of fs.readdirSync(dir)) {
-      const hash = shard + file;
-      if (!live.has(hash)) {
-        fs.unlinkSync(objectPath(hash));
-        objects++;
-      }
-    }
-  }
-
-  return { sessions, commits, refs, treeEntries, blobs, objects, blocked: blockedSessions.size };
+  const objectsToDelete = unreferencedObjects(protectedHashes);
+  return { sessions, commits, refs, treeEntries, blobs, objects: objectsToDelete.length, blocked: candidateIds.length - deletableIds.length, objectsToDelete };
 });
 
 const result = tx();
+if (!dryRun && result.objectsToDelete) {
+  for (const hash of result.objectsToDelete) fs.unlinkSync(objectPath(hash));
+  delete result.objectsToDelete;
+}
 console.log(dryRun ? '[dry run]' : '[applied]', result);
 db.close();
 "
@@ -490,7 +568,8 @@ After applying the cleanup, reclaim unused SQLite pages:
 
 ```bash
 node -e "
-const Database = require(require.resolve('better-sqlite3', { paths: [process.cwd()] }));
+const path = require('path');
+const Database = require(require.resolve('better-sqlite3', { paths: [path.join(process.cwd(), 'packages/core'), process.cwd()] }));
 const db = new Database('.agentgit/index.db');
 db.exec('VACUUM');
 db.close();

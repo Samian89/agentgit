@@ -2,32 +2,35 @@
 
 ## 1. What I built
 
-- Replaced the README with a full project landing page: tagline, pitch,
-  install commands, a short `wrapAgentJS` example, feature matrix, docs links,
-  and shields.io badges.
-- Added/updated architecture documentation for the `.agentgit/` object-store
-  layout, SQLite ER model, `wrapAgentJS` recording sequence, canonical JSON,
-  hash-field stripping, WAL behavior, FK enforcement, idempotent migrations,
-  and maintenance invariants.
-- Reworked troubleshooting guidance for six failure modes: SQLite locking,
-  corrupted object/index recovery, symlink handling, large blobs, Windows path
-  length, and `.agentgit/` size management.
-- Addressed reviewer feedback by removing Mermaid-only diagrams, correcting
-  the ER/recovery guidance, and replacing the size-management recipe with a
-  leaf-first cleanup flow that sweeps stale `tree_entries` and deleted-session
-  blobs.
-- Wired the new pages into VitePress navigation/sidebar and the docs home page.
+This cycle addressed the reviewer follow-ups on the documentation overhaul:
+
+- Corrected the architecture docs so commit recording is described accurately:
+  `Repository.commit()` advances SQLite `sessions.head`; explicit branches are
+  the path that write file refs and SQLite `refs` rows.
+- Clarified that `hash`, `signature`, and `publicKey` are stripped only as
+  top-level derived fields before hashing. Nested metadata remains content.
+- Replaced Mermaid-dependent architecture diagrams with plain ASCII diagrams
+  that render in the current VitePress setup.
+- Tightened troubleshooting recovery guidance so examples are runnable from the
+  source checkout, start with backups or dry runs, and avoid pretending a
+  missing/corrupt index can be rebuilt today.
+- Reworked the `.agentgit/` size-management recipe so it explicitly deletes
+  stale `tree_entries`, then orphaned `blobs` rows, then unreferenced object
+  files after the SQLite transaction commits.
+
+`pnpm docs:build` succeeds.
 
 ## 2. Files changed
 
-- `README.md`
 - `docs/architecture.md`
 - `docs/troubleshooting.md`
-- `docs/index.md`
-- `docs/.vitepress/config.mts`
 - `DONE.md`
+
+The README and VitePress navigation were already present and passing the stated
+acceptance criteria in this worktree, so this follow-up focused on the rejected
+accuracy and safety issues.
 
 ## 3. APIs, types, or interfaces other tickets may consume
 
-No runtime APIs, types, commands, or interfaces were added or changed. This
-cycle is documentation-only.
+No public APIs, types, commands, or runtime interfaces changed. The updates are
+documentation-only.
