@@ -64,14 +64,14 @@ class AgentWrapper:
                 )
             except FileNotFoundError:
                 pass
-            objects_dir = os.path.join(self.agentgit_dir, "objects")
-            refs_dir = os.path.join(self.agentgit_dir, "refs")
-            os.makedirs(objects_dir, exist_ok=True)
-            os.makedirs(refs_dir, exist_ok=True)
-            head_file = os.path.join(self.agentgit_dir, "HEAD")
-            if not os.path.exists(head_file):
-                with open(head_file, "w", encoding="utf-8") as fh:
-                    fh.write("ref: refs/sessions/main")
+        objects_dir = os.path.join(self.agentgit_dir, "objects")
+        refs_dir = os.path.join(self.agentgit_dir, "refs")
+        os.makedirs(objects_dir, exist_ok=True)
+        os.makedirs(refs_dir, exist_ok=True)
+        head_file = os.path.join(self.agentgit_dir, "HEAD")
+        if not os.path.exists(head_file):
+            with open(head_file, "w", encoding="utf-8") as fh:
+                fh.write("ref: refs/sessions/main")
         # Apply migrations regardless of whether the CLI or a previous call
         # already initialised the directory — run_migrations is idempotent and
         # also upgrades legacy v0.1 fixtures to the current target version.

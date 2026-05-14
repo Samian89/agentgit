@@ -127,6 +127,20 @@ class TestDefaultGuards:
 
 
 class TestConfigDrivenGuards:
+    def test_config_only_agentgit_dir_initializes_and_loads_guards(self, tmp_path):
+        agentgit_dir = tmp_path / ".agentgit"
+        agentgit_dir.mkdir()
+        with open(agentgit_dir / "config.json", "w", encoding="utf-8") as f:
+            json.dump({"guards": {"confirmation": {"autoConfirm": ["bash"]}}}, f)
+
+        handler = AgentGitCallbackHandler(repo_path=str(tmp_path))
+        handler.on_agent_action(AgentAction(tool="bash", tool_input="x", log=""))
+        handler.on_tool_start({"name": "bash"}, "rm -rf /tmp/x")
+        handler.on_tool_end("ok")
+
+        count = db_rows(str(tmp_path), "SELECT COUNT(*) FROM commits")[0][0]
+        assert count == 1
+
     def test_auto_confirm_suppresses_prompt(self, tmp_repo):
         _write_config(
             tmp_repo,

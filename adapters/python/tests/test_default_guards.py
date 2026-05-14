@@ -90,6 +90,19 @@ def _write_config(tmp_repo: str, body: dict) -> None:
 
 
 class TestConfigDrivenGuards:
+    def test_config_only_agentgit_dir_initializes_and_loads_guards(self, tmp_path):
+        agentgit_dir = tmp_path / ".agentgit"
+        agentgit_dir.mkdir()
+        with open(agentgit_dir / "config.json", "w", encoding="utf-8") as f:
+            json.dump({"guards": {"confirmation": {"autoConfirm": ["bash"]}}}, f)
+
+        agent = BashAgent()
+        wrapped = wrap_agent(agent, str(tmp_path))
+        assert wrapped("rm -rf /tmp/x") == "executed: rm -rf /tmp/x"
+        assert (agentgit_dir / "index.db").exists()
+        assert (agentgit_dir / "objects").is_dir()
+        assert (agentgit_dir / "refs").is_dir()
+
     def test_auto_confirm_suppresses_prompt(self, tmp_repo):
         _write_config(
             tmp_repo,

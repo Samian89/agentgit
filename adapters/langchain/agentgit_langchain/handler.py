@@ -17,7 +17,6 @@ except Exception:  # pragma: no cover - depends on installed LangChain extras
         pass
 
 _GUARD_IMPORT_ERROR: Optional[BaseException] = None
-
 try:
     # Default guards come from the generic Python adapter so the LangChain
     # handler and the standalone AgentWrapper share one canonical implementation.
@@ -26,6 +25,80 @@ except Exception as exc:  # pragma: no cover - exercised by monkeypatch tests
     GuardRegistry = None  # type: ignore[assignment]
     build_default_guards = None  # type: ignore[assignment]
     _GUARD_IMPORT_ERROR = exc
+
+try:
+    from agentgit_adapter.migrations import run_migrations
+except Exception:  # pragma: no cover - fallback is exercised indirectly
+    run_migrations = None  # type: ignore[assignment]
+
+
+_FALLBACK_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS sessions (
+    id          TEXT    NOT NULL PRIMARY KEY,
+    name        TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'completed', 'failed', 'abandoned')),
+    head        TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    metadata    TEXT    NOT NULL DEFAULT '{}'
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_status     ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at);
+
+CREATE TABLE IF NOT EXISTS commits (
+    hash        TEXT    NOT NULL PRIMARY KEY,
+    tree        TEXT    NOT NULL,
+    parent      TEXT,
+    session_id  TEXT    NOT NULL,
+    timestamp   INTEGER NOT NULL,
+    message     TEXT    NOT NULL,
+    tool_call   TEXT,
+    metadata    TEXT    NOT NULL DEFAULT '{}',
+    author_name TEXT,
+    author_email TEXT,
+    signature   TEXT,
+    public_key  TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_commits_session_id ON commits(session_id);
+CREATE INDEX IF NOT EXISTS idx_commits_parent     ON commits(parent);
+CREATE INDEX IF NOT EXISTS idx_commits_timestamp  ON commits(timestamp);
+
+CREATE TABLE IF NOT EXISTS blobs (
+    hash        TEXT    NOT NULL PRIMARY KEY,
+    size        INTEGER NOT NULL,
+    mime_type   TEXT,
+    encoding    TEXT    NOT NULL DEFAULT 'utf-8'
+);
+
+CREATE TABLE IF NOT EXISTS refs (
+    name        TEXT    NOT NULL PRIMARY KEY,
+    target      TEXT    NOT NULL,
+    type        TEXT    NOT NULL DEFAULT 'branch',
+    updated_at  INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_refs_target ON refs(target);
+CREATE INDEX IF NOT EXISTS idx_refs_type   ON refs(type);
+
+CREATE TABLE IF NOT EXISTS tree_entries (
+    tree_hash   TEXT    NOT NULL,
+    path        TEXT    NOT NULL,
+    blob_hash   TEXT    NOT NULL,
+    size        INTEGER NOT NULL,
+    PRIMARY KEY (tree_hash, path)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tree_entries_blob_hash ON tree_entries(blob_hash);
+
+CREATE TABLE IF NOT EXISTS schema_version (
+    version    INTEGER NOT NULL PRIMARY KEY,
+    name       TEXT    NOT NULL,
+    applied_at INTEGER NOT NULL
+);
+"""
 
 
 class _NullRegistry:
@@ -123,21 +196,59 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
     # ------------------------------------------------------------------
 
     def _ensure_init(self) -> None:
-        if os.path.isdir(self.agentgit_dir):
-            return
-        result = subprocess.run(
-            ["agentgit", "init", self.repo_path],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"agentgit init failed: {result.stderr.strip()}")
+        if not os.path.isdir(self.agentgit_dir):
+            try:
+                result = subprocess.run(
+                    ["agentgit", "init", self.repo_path],
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError:
+                result = None
+            if result is not None and result.returncode != 0:
+                raise RuntimeError(f"agentgit init failed: {result.stderr.strip()}")
+
+        os.makedirs(os.path.join(self.agentgit_dir, "objects"), exist_ok=True)
+        os.makedirs(os.path.join(self.agentgit_dir, "refs"), exist_ok=True)
+        head_path = os.path.join(self.agentgit_dir, "HEAD")
+        if not os.path.exists(head_path):
+            with open(head_path, "w", encoding="utf-8") as f:
+                f.write("ref: refs/sessions/main")
+
+        conn = self._db()
+        try:
+            if run_migrations is not None:
+                run_migrations(conn)
+            else:
+                self._ensure_fallback_schema(conn)
+        finally:
+            conn.close()
 
     def _db(self) -> sqlite3.Connection:
         conn = sqlite3.connect(os.path.join(self.agentgit_dir, "index.db"))
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn
+
+    def _ensure_fallback_schema(self, conn: sqlite3.Connection) -> None:
+        """Create/upgrade enough schema to record or fail closed without adapter deps."""
+        conn.executescript(_FALLBACK_SCHEMA_SQL)
+        existing_cols = {
+            row[1] for row in conn.execute("PRAGMA table_info(commits)").fetchall()
+        }
+        for name in ("author_name", "author_email", "signature", "public_key"):
+            if name not in existing_cols:
+                conn.execute(f"ALTER TABLE commits ADD COLUMN {name} TEXT")
+        now = _now_ms()
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
+            (1, "initial", now),
+        )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
+            (2, "author_signature", now),
+        )
+        conn.commit()
 
     def _write_object(self, hash_hex: str, content: str) -> None:
         prefix, suffix = hash_hex[:2], hash_hex[2:]
@@ -235,6 +346,7 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         tree_hash = self._empty_tree_hash()
         now = _now_ms()
         commit_obj = {
+            "author": None,
             "message": message,
             "metadata": metadata or {},
             "parent": self._session_head,
@@ -250,8 +362,9 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         try:
             conn.execute(
                 "INSERT OR IGNORE INTO commits"
-                " (hash, tree, parent, session_id, timestamp, message, tool_call, metadata)"
-                " VALUES (?,?,?,?,?,?,?,?)",
+                " (hash, tree, parent, session_id, timestamp, message, tool_call, metadata,"
+                "  author_name, author_email, signature, public_key)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     commit_hash,
                     tree_hash,
@@ -261,6 +374,10 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
                     message,
                     json.dumps(tool_call) if tool_call is not None else None,
                     json.dumps(metadata or {}),
+                    None,
+                    None,
+                    None,
+                    None,
                 ),
             )
             conn.execute(
