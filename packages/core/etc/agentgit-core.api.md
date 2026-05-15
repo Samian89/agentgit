@@ -13,6 +13,10 @@ export interface AgentGitConfig {
     // (undocumented)
     guards?: GuardsConfig;
     // (undocumented)
+    llm?: {
+        redaction?: LlmRedactionConfig;
+    };
+    // (undocumented)
     signing?: {
         enabled?: boolean;
         privateKey?: string;
@@ -502,6 +506,14 @@ export interface LlmMessage {
     content: string;
     // (undocumented)
     role: "system" | "user" | "assistant" | "tool";
+}
+
+// @public
+export interface LlmRedactionConfig {
+    enabled?: boolean;
+    includeToolCalls?: boolean;
+    placeholder?: string;
+    redactPatterns?: string[];
 }
 
 // @public (undocumented)
