@@ -4,6 +4,7 @@ import React from "react";
 import { describe, expect, it, vi } from "vitest";
 import StepCard from "../components/StepCard.js";
 import { FIXTURE_COMMITS } from "./fixtures.js";
+import type { CommitRow } from "../types.js";
 
 const COMMIT = FIXTURE_COMMITS[0]!;
 

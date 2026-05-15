@@ -63,6 +63,99 @@ export function wrapAgentJS<T extends AgentLike>(
 
   let parentHash: Hash | null = null;
 
+  // ---------------------------------------------------------------------------
+  // LLM auto-capture wiring (AMC-08064e08 / spec 002).
+  // Detects agent.llm (or explicit via WrapOptions.llm) and, if shaped like a
+  // supported client, dynamically imports the matching adapter and installs a
+  // recorder bridge that turns adapter RecordedLlmCall into core recordLlmCall
+  // commits while advancing the session parentHash. Uses dynamic import so the
+  // @agentgit/sdk package loads cleanly even when the optional adapter packages
+  // are not installed. Setup is fire-and-forget async (import is local and fast);
+  // any real LLM call inside agent.run is user-awaited, giving the microtask
+  // queue time to complete before the wrapped surface is exercised.
+  // ---------------------------------------------------------------------------
+  const llmOpt = options?.llm;
+  if (llmOpt !== false) {
+    let candidate: unknown = null;
+    let explicitProvider: "anthropic" | "vercel-ai-sdk" | null = null;
+    let shouldInject = false;
+
+    if (llmOpt && typeof llmOpt === "object" && "provider" in llmOpt) {
+      explicitProvider = (llmOpt as any).provider;
+      if ((llmOpt as any).client !== undefined) {
+        candidate = (llmOpt as any).client;
+        shouldInject = false;
+      } else {
+        candidate = (agent as any).llm ?? null;
+        shouldInject = true;
+      }
+    } else {
+      candidate = (agent as any).llm ?? null;
+      shouldInject = true;
+    }
+
+    if (candidate) {
+      // Fire-and-forget; never blocks wrapAgentJS return or common no-llm path.
+      (async () => {
+        try {
+          let provider: "anthropic" | "vercel-ai-sdk" | null = explicitProvider;
+          if (!provider) {
+            const obj = candidate as any;
+            const isAnthropic = !!(obj && obj.messages && typeof obj.messages.create === "function");
+            const isVercel =
+              !!(obj &&
+                (typeof obj.generateText === "function" || typeof obj.streamText === "function"));
+            if (isAnthropic) provider = "anthropic";
+            else if (isVercel) provider = "vercel-ai-sdk";
+            else if (process.env.AGENTGIT_DEBUG === "1") {
+              console.warn(
+                "[agentgit] wrapAgentJS: `agent.llm` present but shape not recognized " +
+                  "(expected Anthropic `messages.create` or Vercel AI `generateText`/`streamText`). " +
+                  "Install the matching adapter or use { llm: { provider, client } } to force capture."
+              );
+            }
+          }
+
+          if (!provider) return;
+
+          const bridge = createLlmRecorderBridge(
+            repo,
+            session.id,
+            () => parentHash,
+            (h: Hash | null) => {
+              parentHash = h;
+            }
+          );
+
+          if (provider === "anthropic") {
+            const mod = await import("@agentgit/adapter-anthropic-sdk");
+            if (typeof mod.wrapAnthropic !== "function") throw new Error("wrapAnthropic missing");
+            const wrappedLlm = mod.wrapAnthropic(candidate, { recorder: bridge });
+            if (shouldInject) {
+              (agent as any).llm = wrappedLlm;
+            }
+          } else if (provider === "vercel-ai-sdk") {
+            const mod = await import("@agentgit/adapter-vercel-ai-sdk");
+            if (typeof mod.wrapAI !== "function") throw new Error("wrapAI missing");
+            const wrappedLlm = mod.wrapAI(candidate, { recorder: bridge });
+            if (shouldInject) {
+              (agent as any).llm = wrappedLlm;
+            }
+          }
+        } catch (err: any) {
+          if (process.env.AGENTGIT_DEBUG === "1") {
+            console.warn(
+              `[agentgit] wrapAgentJS: LLM auto-capture initialization failed ` +
+                `(adapter not installed or incompatible). No LlmCall commits will be written for this llm. ` +
+                String(err?.message || err)
+            );
+          }
+          // Intentionally silent otherwise — wrapAgentJS never throws due to missing optional adapter.
+        }
+      })();
+    }
+  }
+
   const agentgit = {
     get sessionId(): string {
       return session.id;
