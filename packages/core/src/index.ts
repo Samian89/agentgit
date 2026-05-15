@@ -6,6 +6,9 @@ export type {
   Tree,
   ToolCallStatus,
   ToolCall,
+  LlmUsage,
+  LlmMessage,
+  LlmCall,
   Author,
   Commit,
   RefType,
@@ -22,7 +25,7 @@ export { CommitGraph } from "./commit-graph.js";
 export { RefStore } from "./ref-store.js";
 export { SqliteIndex } from "./sqlite-index.js";
 export { Repository } from "./repository.js";
-export type { StateEntry, CommitInput } from "./repository.js";
+export type { StateEntry, CommitInput, LlmCallInput } from "./repository.js";
 
 export { gc, reachableObjects } from "./gc.js";
 export type { GcOptions, GcResult } from "./gc.js";

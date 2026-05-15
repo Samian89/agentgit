@@ -11,13 +11,13 @@
  *     `objectstore.read`, `index.transaction`),
  *   - duration in milliseconds,
  *   - span-specific benign attributes (never user data or identifiers):
- *     - `commit`: `{ entries: number, signed: boolean }`
+ *     - `commit`: `{ entries: number, signed: boolean, hasLlmCall: boolean }`
  *     - `guard.evaluate`: `{ outcome: "allow" | "block", guards: number }`
  *     - `objectstore.write`: `{ deduped: boolean }`
  *     - `objectstore.read`, `index.transaction`: no attrs (`{}`)
  *
  * Reporters MUST NOT receive: commit messages, tool names, tool inputs or
- * outputs, file paths, file contents, session IDs, hashes, or any other
+ * outputs, LLM prompts/responses, file paths, file contents, session IDs, hashes, or any other
  * user-supplied data. Built-in emission sites enforce this; custom
  * reporters that wrap third-party SDKs are responsible for not enriching
  * spans with extra fields.

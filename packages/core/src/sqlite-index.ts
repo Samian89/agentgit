@@ -12,6 +12,7 @@ import type {
   Blob,
   Commit,
   Hash,
+  LlmCall,
   Ref,
   RefType,
   Session,
@@ -42,6 +43,7 @@ interface CommitRow {
   timestamp: number;
   message: string;
   tool_call: string | null;
+  llm_call: string | null;
   metadata: string;
   author_name: string | null;
   author_email: string | null;
@@ -89,6 +91,11 @@ export class SqliteIndex {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
     runMigrations(this.db);
+  }
+
+  /** Convenience factory (matches Repository.init pattern). */
+  static init(dbPath: string, reporter: Reporter | null = null): SqliteIndex {
+    return new SqliteIndex(dbPath, reporter);
   }
 
   /** Inspect the migration state of this DB without applying anything. */
@@ -179,10 +186,10 @@ export class SqliteIndex {
     this.db
       .prepare(
         `INSERT INTO commits (
-           hash, tree, parent, session_id, timestamp, message, tool_call, metadata,
+           hash, tree, parent, session_id, timestamp, message, tool_call, llm_call, metadata,
            author_name, author_email, signature, public_key
          ) VALUES (
-           @hash, @tree, @parent, @session_id, @timestamp, @message, @tool_call, @metadata,
+           @hash, @tree, @parent, @session_id, @timestamp, @message, @tool_call, @llm_call, @metadata,
            @author_name, @author_email, @signature, @public_key
          )`,
       )
@@ -194,6 +201,7 @@ export class SqliteIndex {
         timestamp: commit.timestamp,
         message: commit.message,
         tool_call: commit.toolCall !== null ? JSON.stringify(commit.toolCall) : null,
+        llm_call: commit.llmCall !== null ? JSON.stringify(commit.llmCall) : null,
         metadata: JSON.stringify(commit.metadata),
         author_name: commit.author?.name ?? null,
         author_email: commit.author?.email ?? null,
@@ -374,6 +382,9 @@ function rowToCommit(row: CommitRow): Commit {
     row.author_name !== null && row.author_email !== null
       ? { name: row.author_name, email: row.author_email }
       : null;
+  // llm_call may be absent on rows from pre-migration DBs (before runMigrations);
+  // synthesize null so old fixtures still produce valid Commit objects.
+  const llmCallRaw = (row as CommitRow & { llm_call?: string | null }).llm_call;
   return {
     hash: row.hash,
     type: "commit",
@@ -385,6 +396,7 @@ function rowToCommit(row: CommitRow): Commit {
     toolCall: row.tool_call
       ? (JSON.parse(row.tool_call) as ToolCall)
       : null,
+    llmCall: llmCallRaw ? (JSON.parse(llmCallRaw) as LlmCall) : null,
     metadata: JSON.parse(row.metadata) as Record<string, unknown>,
     author,
     signature: row.signature,

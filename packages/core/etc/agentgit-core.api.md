@@ -129,6 +129,7 @@ export interface Commit {
     author: Author | null;
     // (undocumented)
     hash: Hash;
+    llmCall: LlmCall | null;
     message: string;
     metadata: Record<string, unknown>;
     parent: Hash | null;
@@ -153,6 +154,7 @@ export class CommitGraph {
 // @public (undocumented)
 export interface CommitInput {
     author?: Author | null;
+    llmCall?: LlmCall | null;
     // (undocumented)
     message: string;
     metadata?: Record<string, unknown>;
@@ -440,6 +442,76 @@ export interface ImportBundleResult extends UnpackResult {
     refsInserted: number;
     // (undocumented)
     sessionsInserted: number;
+}
+
+// @public (undocumented)
+export interface LlmCall {
+    completedAt: Timestamp | null;
+    costEstimateUsd: number | null;
+    durationMs: number | null;
+    error: string | null;
+    id: string;
+    messages: LlmMessage[];
+    model: string;
+    provider: string;
+    response: string;
+    startedAt: Timestamp;
+    status: "pending" | "success" | "error";
+    usage: LlmUsage | null;
+}
+
+// @public
+export interface LlmCallInput {
+    // (undocumented)
+    author?: Author | null;
+    // (undocumented)
+    completedAt?: Timestamp | null;
+    // (undocumented)
+    costEstimateUsd?: number | null;
+    // (undocumented)
+    durationMs?: number | null;
+    // (undocumented)
+    error?: string | null;
+    // (undocumented)
+    id?: string;
+    // (undocumented)
+    messages: LlmMessage[];
+    // (undocumented)
+    metadata?: Record<string, unknown>;
+    // (undocumented)
+    model: string;
+    // (undocumented)
+    parentHash?: Hash | null;
+    // (undocumented)
+    provider: string;
+    // (undocumented)
+    response: string;
+    // (undocumented)
+    sessionId: string;
+    // (undocumented)
+    startedAt?: Timestamp;
+    // (undocumented)
+    status?: "pending" | "success" | "error";
+    // (undocumented)
+    usage?: LlmUsage | null;
+}
+
+// @public (undocumented)
+export interface LlmMessage {
+    // (undocumented)
+    content: string;
+    // (undocumented)
+    role: "system" | "user" | "assistant" | "tool";
+}
+
+// @public (undocumented)
+export interface LlmUsage {
+    // (undocumented)
+    completionTokens: number;
+    // (undocumented)
+    promptTokens: number;
+    // (undocumented)
+    totalTokens: number;
 }
 
 // @public (undocumented)
@@ -786,6 +858,7 @@ export class Repository {
     push(opts: Omit<PushOptions, "repo"> & {
         repo?: never;
     }): Promise<PushResult>;
+    recordLlmCall(input: LlmCallInput): Commit;
     // (undocumented)
     readonly refs: RefStore;
     readonly reporter: Reporter | null;
@@ -880,6 +953,7 @@ export class SqliteIndex {
     getTreeEntries(treeHash: Hash): TreeEntry[];
     // (undocumented)
     hasBlob(hash: Hash): boolean;
+    static init(dbPath: string, reporter?: Reporter | null): SqliteIndex;
     // (undocumented)
     insertBlob(blob: Blob_2): void;
     // (undocumented)

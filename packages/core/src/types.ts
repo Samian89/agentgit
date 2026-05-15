@@ -94,6 +94,48 @@ export interface ToolCall {
 }
 
 // ---------------------------------------------------------------------------
+// LlmCall — an LLM provider invocation (first-class alongside ToolCall)
+// ---------------------------------------------------------------------------
+
+export interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface LlmMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+}
+
+export interface LlmCall {
+  /** Unique identifier for this invocation (UUID v4 recommended). */
+  id: string;
+  /** Provider name (e.g. "anthropic", "openai", "vercel-ai-sdk"). */
+  provider: string;
+  /** Model identifier (e.g. "claude-opus-4-7"). */
+  model: string;
+  /** Prompt messages sent to the model. */
+  messages: LlmMessage[];
+  /** Model response text (joined if multi-part). */
+  response: string;
+  /** Token usage; null if unavailable. */
+  usage: LlmUsage | null;
+  /** Estimated USD cost; null if unknown. */
+  costEstimateUsd: number | null;
+  /** Unix epoch ms when the LLM call started. */
+  startedAt: Timestamp;
+  /** Unix epoch ms when completed; null if still pending. */
+  completedAt: Timestamp | null;
+  /** Duration in milliseconds; null if pending. */
+  durationMs: number | null;
+  /** Execution status. */
+  status: "pending" | "success" | "error";
+  /** Error message if status is "error". */
+  error: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Commit — single agent step / action record
 // ---------------------------------------------------------------------------
 
@@ -118,6 +160,8 @@ export interface Commit {
   message: string;
   /** The tool call that produced this commit; null for manual/synthetic commits. */
   toolCall: ToolCall | null;
+  /** The LLM call that produced this commit; null for non-LLM commits. */
+  llmCall: LlmCall | null;
   /** Arbitrary key-value metadata (agent version, model, environment, etc.). */
   metadata: Record<string, unknown>;
   /** Committer identity; null when no identity is configured. */

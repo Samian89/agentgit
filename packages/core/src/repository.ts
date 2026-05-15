@@ -38,9 +38,13 @@ import type {
   Commit,
   DiffEntry,
   Hash,
+  LlmCall,
+  LlmMessage,
+  LlmUsage,
   Session,
   SessionStatus,
   StepDiff,
+  Timestamp,
   ToolCall,
   Tree,
   TreeEntry,
@@ -68,6 +72,8 @@ export interface CommitInput {
   stateEntries?: StateEntry[];
   /** Tool call that produced this commit. */
   toolCall?: ToolCall | null;
+  /** LLM call that produced this commit. */
+  llmCall?: LlmCall | null;
   /** Arbitrary commit metadata. */
   metadata?: Record<string, unknown>;
   /** Explicit parent hash. If omitted, the session's current head is used. */
@@ -76,6 +82,31 @@ export interface CommitInput {
    * Override committer identity. When omitted, the identity from
    * .agentgit/config.json is used (or null if no identity is configured).
    */
+  author?: Author | null;
+}
+
+/**
+ * Input for `Repository.recordLlmCall`. Mirrors the core `LlmCall` fields plus
+ * the minimal commit context (session, parent, metadata, author). Timestamps,
+ * id, duration, and status are auto-filled when omitted so callers only need to
+ * supply the essential provider/model/messages/response.
+ */
+export interface LlmCallInput {
+  sessionId: string;
+  provider: string;
+  model: string;
+  messages: LlmMessage[];
+  response: string;
+  usage?: LlmUsage | null;
+  costEstimateUsd?: number | null;
+  id?: string;
+  startedAt?: Timestamp;
+  completedAt?: Timestamp | null;
+  durationMs?: number | null;
+  status?: "pending" | "success" | "error";
+  error?: string | null;
+  parentHash?: Hash | null;
+  metadata?: Record<string, unknown>;
   author?: Author | null;
 }
 
@@ -174,6 +205,7 @@ export class Repository {
       message,
       stateEntries = [],
       toolCall = null,
+      llmCall = null,
       metadata = {},
     } = input;
 
@@ -234,6 +266,7 @@ export class Repository {
       timestamp: now,
       message,
       toolCall,
+      llmCall,
       metadata,
       author,
     };
@@ -266,14 +299,58 @@ export class Repository {
     safeRecord(this.reporter, {
       name: "commit",
       durationMs: performanceNow() - tStart,
-      // Privacy: no session id, message, paths, tool inputs/outputs. Counts only.
+      // Privacy: no session id, message, paths, tool inputs/outputs, LLM prompts/responses. Counts only.
       attrs: {
         entries: stateEntries.length,
         signed: signature !== null,
+        hasLlmCall: llmCall !== null,
       },
     });
 
     return fullCommit;
+  }
+
+  /**
+   * Record an LLM call as a first-class commit (thin convenience wrapper).
+   * Auto-generates `id` (UUID), stamps `startedAt`/`completedAt`/`durationMs`/`status`
+   * when omitted, builds commit message "LLM: <model>", and delegates to `commit()`
+   * with empty state entries. The resulting `llmCall` participates in the canonical
+   * JSON hash exactly like a `toolCall`.
+   */
+  recordLlmCall(input: LlmCallInput): Commit {
+    const now = Date.now();
+    const id = input.id ?? crypto.randomUUID();
+    const startedAt = input.startedAt ?? now;
+    const completedAt = input.completedAt ?? (input.status === "pending" ? null : now);
+    const durationMs =
+      input.durationMs ?? (completedAt != null ? completedAt - startedAt : null);
+    const status = input.status ?? (input.error ? "error" : "success");
+
+    const llmCall: LlmCall = {
+      id,
+      provider: input.provider,
+      model: input.model,
+      messages: input.messages,
+      response: input.response,
+      usage: input.usage ?? null,
+      costEstimateUsd: input.costEstimateUsd ?? null,
+      startedAt,
+      completedAt,
+      durationMs,
+      status,
+      error: input.error ?? null,
+    };
+
+    const message = `LLM: ${input.model}`;
+    return this.commit({
+      sessionId: input.sessionId,
+      message,
+      stateEntries: [],
+      llmCall,
+      parentHash: input.parentHash ?? null,
+      metadata: input.metadata ?? {},
+      author: input.author ?? null,
+    });
   }
 
   // --------------------------------------------------------------------------

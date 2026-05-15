@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { MIGRATION_001_SQL } from "./001_initial.js";
 import { MIGRATION_002_SQL } from "./002_author_signature.js";
+import { MIGRATION_003_SQL } from "./003_llm_call.js";
 
 export interface Migration {
   /** Monotonically increasing integer; must be unique within MIGRATIONS. */
@@ -21,6 +22,7 @@ export interface Migration {
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: "initial", up: MIGRATION_001_SQL },
   { version: 2, name: "author_signature", up: MIGRATION_002_SQL },
+  { version: 3, name: "llm_call", up: MIGRATION_003_SQL },
 ];
 
 export const TARGET_VERSION = MIGRATIONS[MIGRATIONS.length - 1]!.version;
