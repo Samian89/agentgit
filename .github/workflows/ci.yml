@@ -56,6 +56,13 @@ jobs:
           pnpm --filter @agentgit/core build
           pnpm --filter @agentgit/sdk build
       - run: pnpm test
+      # Explicit web-viewer step in addition to `pnpm test`. The root command
+      # already includes the web-viewer project via vitest.workspace.ts, so
+      # this step is technically redundant on a green run — but on a failure
+      # it gives a single-package signal in CI logs (and a single-package
+      # retry target) without forcing the reviewer to grep the workspace
+      # output for `|@agentgit/web-viewer|`.
+      - run: pnpm --filter @agentgit/web-viewer test
 
   integration:
     name: Integration tests
