@@ -47,6 +47,23 @@ export interface TelemetryConfigShape {
   serviceName?: string;
 }
 
+/**
+ * Optional redaction config under `llm.redaction` in `.agentgit/config.json`.
+ * When `redactPatterns` are provided, matching substrings in LLM messages/response
+ * (and tool call I/O when `includeToolCalls` is not false) are replaced by the
+ * placeholder **before** the commit is hashed and persisted.
+ */
+export interface LlmRedactionConfig {
+  /** Master switch; default true when redactPatterns are present. */
+  enabled?: boolean;
+  /** ECMAScript regex source strings (e.g. "sk-[A-Za-z0-9]+"). Invalid patterns throw on Repository.init. */
+  redactPatterns?: string[];
+  /** Replacement text for matches. Default "[REDACTED]". */
+  placeholder?: string;
+  /** Apply redaction to ToolCall.input/output JSON strings too. Default true. */
+  includeToolCalls?: boolean;
+}
+
 /** Shape of `.agentgit/config.json`. */
 export interface AgentGitConfig {
   user?: Partial<Author>;
@@ -60,6 +77,7 @@ export interface AgentGitConfig {
   };
   guards?: GuardsConfig;
   telemetry?: TelemetryConfigShape;
+  llm?: { redaction?: LlmRedactionConfig };
   [key: string]: unknown;
 }
 

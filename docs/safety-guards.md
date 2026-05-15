@@ -269,3 +269,60 @@ const wrapped = wrapAgentJS(agent, {
   guards: [new ConfirmationGuard(), new RateLimitGuard(100)],
 });
 ```
+---
+
+## Redaction
+
+Redaction is an opt-in privacy feature that scrubs sensitive substrings from LLM prompts/responses and (by default) tool call inputs/outputs **before** they are hashed and persisted in the content-addressed store. Redacted values are replaced by the placeholder `[REDACTED]` (configurable) and are visible in the resulting `llmCall` / `toolCall` records — the audit trail keeps structure while secrets never leave the machine in plaintext.
+
+### Configuration
+
+Add an `llm.redaction` block to `.agentgit/config.json`:
+
+```json
+{
+  "llm": {
+    "redaction": {
+      "redactPatterns": ["sk-[A-Za-z0-9]{20,}", "(?i)password\\s*=\\s*\\S+"],
+      "placeholder": "[REDACTED]",
+      "includeToolCalls": true
+    }
+  }
+}
+```
+
+- `redactPatterns`: array of ECMAScript regex *source strings* (no `/.../g` delimiters). Each is compiled with the global flag and applied in order.
+- `placeholder`: defaults to `"[REDACTED]"`.
+- `includeToolCalls`: when `false`, tool call `input`/`output`/`error` are left untouched (LLM fields are always redacted if patterns are set). Default `true`.
+- `enabled`: set to `false` to disable even if patterns are present (rare).
+
+Invalid regex syntax (e.g. `"[unclosed"`) causes `Repository.init` (and the first `AgentWrapper` record in Python) to throw immediately with the offending pattern in the error message.
+
+### Fields affected
+
+- `LlmCall.messages[].content`, `LlmCall.response`, `LlmCall.error`
+- `ToolCall.input` (JSON-serialized, redacted, re-parsed), `ToolCall.output` (string or JSON round-trip for objects/arrays), `ToolCall.error`
+
+Redaction is applied inside `Repository.commit` / `recordLlmCall` (TS) and `_record_commit` (Python adapters + langchain) **before** the commit body is canonical-JSON-hashed. Consequently:
+
+- `getCommit(hash)` and the on-disk object file contain only redacted text.
+- The commit hash itself is computed from the redacted payload (content-addressed invariant preserved).
+
+### Regex compatibility notes
+
+Both implementations use the host regex engine on the exact pattern source:
+
+- TypeScript: `new RegExp(p, "g")`
+- Python: `re.compile(p)` (no extra flags)
+
+ECMAScript-specific features (`\u{...}`, named capture groups `(? <name>...)`, lookbehind) may behave differently or be unsupported in Python's `re`. For portable cross-language redaction, prefer ASCII patterns and basic character classes. The shared test fixture in `packages/core/src/__tests__/fixtures/redacted-llm-call.json` is used by both test suites to guarantee identical canonical JSON output.
+
+### Example: scrubbing OpenAI keys
+
+```json
+{ "llm": { "redaction": { "redactPatterns": ["(?i)sk-[A-Za-z0-9]{20,}"] } } }
+```
+
+Any occurrence of an `sk-...` key in an LLM message or response (or tool I/O) becomes `[REDACTED]` before persistence.
+
+Redaction is independent of telemetry (which already never emits prompt/response text per the privacy contract in `telemetry/reporter.ts`).

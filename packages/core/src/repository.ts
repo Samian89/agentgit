@@ -11,7 +11,13 @@ import { ObjectStore } from "./object-store.js";
 import { CommitGraph } from "./commit-graph.js";
 import { RefStore } from "./ref-store.js";
 import { SqliteIndex } from "./sqlite-index.js";
-import { loadConfig, resolveAuthor } from "./config.js";
+import { configPath, loadConfig, resolveAuthor } from "./config.js";
+import {
+  buildRedactor,
+  redactLlmCall,
+  redactToolCall,
+  validateRedactionPatterns,
+} from "./redact.js";
 import { buildReporter, safeRecord, type Reporter } from "./telemetry/index.js";
 import { signMessage, verifyMessage } from "./signing.js";
 import { gc as runGc, type GcOptions, type GcResult } from "./gc.js";
@@ -141,7 +147,9 @@ export class Repository {
   static init(agentgitDir: string): Repository {
     mkdirSync(join(agentgitDir, "objects"), { recursive: true });
     mkdirSync(join(agentgitDir, "refs"), { recursive: true });
-    const reporter = buildReporter(loadConfig(agentgitDir));
+    const cfg = loadConfig(agentgitDir);
+    validateRedactionPatterns(cfg.llm?.redaction?.redactPatterns, configPath(agentgitDir));
+    const reporter = buildReporter(cfg);
     const objects = new ObjectStore(join(agentgitDir, "objects"), reporter);
     const refs = new RefStore(agentgitDir);
     const index = new SqliteIndex(join(agentgitDir, "index.db"), reporter);
@@ -204,10 +212,10 @@ export class Repository {
       sessionId,
       message,
       stateEntries = [],
-      toolCall = null,
-      llmCall = null,
       metadata = {},
     } = input;
+    const toolCall = input.toolCall ?? null;
+    const llmCall = input.llmCall ?? null;
 
     const now = Date.now();
     const tStart = performanceNow();
@@ -227,6 +235,21 @@ export class Repository {
       signing?.enabled !== false &&
       typeof signing?.privateKey === "string" &&
       typeof signing?.publicKey === "string";
+
+    // Redaction (if configured): must happen BEFORE objects.write so hash reflects redacted content.
+    const redactionCfg = config.llm?.redaction;
+    const redact = buildRedactor(redactionCfg);
+    const includeToolCalls = redactionCfg?.includeToolCalls !== false; // default true
+    let effectiveToolCall = toolCall;
+    let effectiveLlmCall = llmCall;
+    if (redact) {
+      if (llmCall !== null) {
+        effectiveLlmCall = redactLlmCall(llmCall, redact);
+      }
+      if (toolCall !== null && includeToolCalls) {
+        effectiveToolCall = redactToolCall(toolCall, redact);
+      }
+    }
 
     // Build blobs and tree entries
     const blobs: Blob[] = [];
@@ -265,8 +288,8 @@ export class Repository {
       sessionId,
       timestamp: now,
       message,
-      toolCall,
-      llmCall,
+      toolCall: effectiveToolCall,
+      llmCall: effectiveLlmCall,
       metadata,
       author,
     };

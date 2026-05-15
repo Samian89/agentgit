@@ -70,6 +70,7 @@ export type {
   AgentGitConfig,
   GuardsConfig,
   TelemetryConfigShape,
+  LlmRedactionConfig,
 } from "./config.js";
 
 export {

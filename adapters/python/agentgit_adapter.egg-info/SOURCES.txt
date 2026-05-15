@@ -22,4 +22,5 @@ tests/test_default_guards.py
 tests/test_migration_003.py
 tests/test_migrations.py
 tests/test_record_llm_call.py
+tests/test_redaction.py
 tests/test_wrap_agent.py

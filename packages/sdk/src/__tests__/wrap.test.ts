@@ -77,7 +77,7 @@ describe("wrapAgentJS", () => {
 
   it("records ≥3 commits for a 3-step session (prompt + 2 tool calls)", async () => {
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "test-session" });
+    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "test-session" });
     repos.push(wrapped.agentgit.repo);
 
     await wrapped.run("find all users");
@@ -88,7 +88,7 @@ describe("wrapAgentJS", () => {
 
   it("prompt commit has no parent; each subsequent commit chains correctly", async () => {
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, { repoDir });
+    const wrapped = wrapAgentJS(agent, { repoDir });
     repos.push(wrapped.agentgit.repo);
 
     await wrapped.run("hello world");
@@ -132,7 +132,7 @@ describe("wrapAgentJS", () => {
     };
 
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, { repoDir, guards: [trackingGuard] });
+    const wrapped = wrapAgentJS(agent, { repoDir, guards: [trackingGuard] });
     repos.push(wrapped.agentgit.repo);
 
     await wrapped.run("test prompt");
@@ -155,7 +155,7 @@ describe("wrapAgentJS", () => {
     };
 
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, { repoDir, guards: [blockingGuard] });
+    const wrapped = wrapAgentJS(agent, { repoDir, guards: [blockingGuard] });
     repos.push(wrapped.agentgit.repo);
 
     await expect(wrapped.run("test")).rejects.toThrow("blocked by guard");
@@ -168,7 +168,7 @@ describe("wrapAgentJS", () => {
 
   it("session is retrievable via Repository.getSession", async () => {
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, {
+    const wrapped = wrapAgentJS(agent, {
       repoDir,
       sessionName: "my-session",
       sessionMetadata: { owner: "test" },
@@ -189,7 +189,7 @@ describe("wrapAgentJS", () => {
 
   it("end() transitions session status to completed", async () => {
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, { repoDir });
+    const wrapped = wrapAgentJS(agent, { repoDir });
     repos.push(wrapped.agentgit.repo);
 
     await wrapped.run("one step");
@@ -201,7 +201,7 @@ describe("wrapAgentJS", () => {
 
   it("tool call output is stored on the commit", async () => {
     const agent = new MockAgent();
-    const wrapped = await wrapAgentJS(agent, { repoDir });
+    const wrapped = wrapAgentJS(agent, { repoDir });
     repos.push(wrapped.agentgit.repo);
 
     await wrapped.run("data");

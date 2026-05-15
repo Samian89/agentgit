@@ -115,11 +115,15 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new AnthropicAgent(mockAnth);
-    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "anth-session" });
+    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "anth-session" });
     repos.push(wrapped.agentgit.repo);
 
-    // Allow the fire-and-forget dynamic-import + wrap to settle
-    await new Promise((r) => setTimeout(r, 0));
+    // Allow the fire-and-forget dynamic-import + wrap to settle (robust wait for .agentgit marker added by adapter)
+    await new Promise((r) => setTimeout(r, 5));
+    for (let i = 0; i < 20; i++) {
+      if ((agent as any).llm && (agent as any).llm.agentgit) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
 
     await wrapped.run("tell me about agentgit");
 
@@ -146,10 +150,14 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new VercelAgent(mockVercel);
-    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "vercel-session" });
+    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "vercel-session" });
     repos.push(wrapped.agentgit.repo);
 
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 5));
+    for (let i = 0; i < 20; i++) {
+      if ((agent as any).llm && (agent as any).llm.agentgit) break;
+      await new Promise((r) => setTimeout(r, 1));
+    }
 
     await wrapped.run("compute 2+2");
 
@@ -173,10 +181,10 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new AnthropicAgent(mockAnth);
-    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "no-llm", llm: false });
+    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "no-llm", llm: false });
     repos.push(wrapped.agentgit.repo);
 
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 5));
 
     await wrapped.run("anything");
 
@@ -198,10 +206,10 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new ToolUsingAgentWithLlm(mockAnth);
-    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "mixed" });
+    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "mixed" });
     repos.push(wrapped.agentgit.repo);
 
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 5));
 
     const result = await wrapped.run("search users");
 
@@ -227,10 +235,10 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     } as any;
     // Should not throw
-    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "weird" });
+    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "weird" });
     repos.push(wrapped.agentgit.repo);
 
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 5));
 
     await wrapped.run("test");
 

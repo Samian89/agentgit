@@ -1,11 +1,12 @@
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from agentgit_adapter.guards import GuardRegistry, build_default_guards
 from agentgit_adapter.migrations import run_migrations
@@ -21,6 +22,97 @@ def _sha256(text: str) -> str:
 
 def _now_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+# ---------------------------------------------------------------------------
+# Redaction helpers (mirror of packages/core/src/redact.ts)
+# Applied BEFORE _hash_and_write / _record_commit so content-addressed hash
+# never contains raw secrets. Must produce byte-identical canonical JSON to TS.
+# ---------------------------------------------------------------------------
+
+
+def _build_redactor(
+    redaction_cfg: Optional[Dict[str, Any]],
+) -> Optional[Callable[[str], str]]:
+    if not redaction_cfg:
+        return None
+    if redaction_cfg.get("enabled") is False:
+        return None
+    patterns: List[str] = redaction_cfg.get("redactPatterns") or []
+    if not patterns:
+        return None
+    placeholder: str = redaction_cfg.get("placeholder") or "[REDACTED]"
+    compiled: List["re.Pattern[str]"] = []
+    for p in patterns:
+        try:
+            compiled.append(re.compile(p))
+        except re.error as e:
+            raise ValueError(
+                f'Invalid regex in llm.redaction.redactPatterns: "{p}" — {e}'
+            ) from e
+
+    def _redact(s: str) -> str:
+        out = s
+        for cre in compiled:
+            out = cre.sub(placeholder, out)
+        return out
+
+    return _redact
+
+
+def _redact_llm_call(
+    llm_call: Optional[Dict[str, Any]], redact: Optional[Callable[[str], str]]
+) -> Optional[Dict[str, Any]]:
+    if not llm_call or not redact:
+        return llm_call
+    lc = dict(llm_call)  # shallow copy
+    msgs = lc.get("messages") or []
+    new_msgs: List[Dict[str, Any]] = []
+    for m in msgs:
+        if isinstance(m, dict):
+            new_msgs.append({**m, "content": redact(str(m.get("content", "")))})
+        else:
+            new_msgs.append(m)
+    lc["messages"] = new_msgs
+    if "response" in lc and lc["response"] is not None:
+        lc["response"] = redact(str(lc["response"]))
+    if lc.get("error"):
+        lc["error"] = redact(str(lc["error"]))
+    return lc
+
+
+def _redact_tool_call(
+    tc: Optional[Dict[str, Any]],
+    redact: Optional[Callable[[str], str]],
+    include_tool_calls: bool = True,
+) -> Optional[Dict[str, Any]]:
+    if not tc or not redact or not include_tool_calls:
+        return tc
+    tc2 = dict(tc)
+    # input: dict -> json str -> redact -> parse (secrets inside string values get hit)
+    inp = tc2.get("input")
+    if isinstance(inp, dict):
+        try:
+            j = _canonical_json(inp)
+            rj = redact(j)
+            tc2["input"] = json.loads(rj)
+        except Exception:
+            pass  # defensive
+    # output: str direct; dict/list roundtrip; primitives unchanged
+    out = tc2.get("output")
+    if out is not None:
+        if isinstance(out, str):
+            tc2["output"] = redact(out)
+        elif isinstance(out, (dict, list)):
+            try:
+                j = _canonical_json(out)
+                rj = redact(j)
+                tc2["output"] = json.loads(rj)
+            except Exception:
+                pass
+    if tc2.get("error"):
+        tc2["error"] = redact(str(tc2["error"]))
+    return tc2
 
 
 class AgentWrapper:
@@ -184,6 +276,29 @@ class AgentWrapper:
     ) -> str:
         tree_hash = self._empty_tree_hash()
         now = _now_ms()
+
+        # Redaction (if configured in .agentgit/config.json llm.redaction).
+        # Must happen before _hash_and_write so the persisted hash and object
+        # contain only redacted text. Mirrors TS Repository.commit behaviour.
+        redaction_cfg: Optional[Dict[str, Any]] = None
+        config_path = os.path.join(self.agentgit_dir, "config.json")
+        try:
+            if os.path.isfile(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f) or {}
+                    redaction_cfg = (cfg.get("llm") or {}).get("redaction")
+        except Exception:
+            redaction_cfg = None
+        redact_fn = _build_redactor(redaction_cfg)
+        include_tc = True
+        if redaction_cfg and redaction_cfg.get("includeToolCalls") is False:
+            include_tc = False
+
+        eff_tool_call = (
+            _redact_tool_call(tool_call, redact_fn, include_tc) if tool_call is not None else None
+        )
+        eff_llm_call = _redact_llm_call(llm_call, redact_fn) if llm_call is not None else None
+
         # The canonical commit body must match exactly what the TypeScript
         # core writes (see packages/core/src/repository.ts) so that a TS
         # verify on the same hash produces the same digest. The `author`
@@ -193,13 +308,13 @@ class AgentWrapper:
         # the source for readability; sort_keys ensures canonical form.
         commit_obj = {
             "author": None,
-            "llmCall": llm_call,
+            "llmCall": eff_llm_call,
             "message": message,
             "metadata": metadata or {},
             "parent": self._session_head,
             "sessionId": self._session_id,
             "timestamp": now,
-            "toolCall": tool_call,
+            "toolCall": eff_tool_call,
             "tree": tree_hash,
             "type": "commit",
         }
@@ -221,8 +336,8 @@ class AgentWrapper:
                     self._session_id,
                     now,
                     message,
-                    json.dumps(tool_call) if tool_call is not None else None,
-                    json.dumps(llm_call) if llm_call is not None else None,
+                    json.dumps(eff_tool_call) if eff_tool_call is not None else None,
+                    json.dumps(eff_llm_call) if eff_llm_call is not None else None,
                     json.dumps(metadata or {}),
                     None,  # author_name
                     None,  # author_email

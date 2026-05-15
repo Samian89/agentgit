@@ -1,0 +1,38 @@
+{
+  "description": "Cross-language redaction parity fixture. Both TS and Python must produce identical canonical JSON for the commit body (after redaction) and thus the same SHA-256 hash for the same inputs + fixed timestamps/ids.",
+  "redaction": {
+    "redactPatterns": ["sk-[A-Za-z0-9]{20,}", "TOPSECRET"],
+    "placeholder": "[REDACTED]"
+  },
+  "input": {
+    "sessionId": "00000000-0000-0000-0000-000000000001",
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "system",
+        "content": "System prompt containing sk-1234567890abcdefghij and TOPSECRET"
+      },
+      { "role": "user", "content": "user message" }
+    ],
+    "response": "Response mentions TOPSECRET and sk-99999999999999999999",
+    "usage": { "promptTokens": 10, "completionTokens": 5, "totalTokens": 15 },
+    "costEstimateUsd": 0.0001,
+    "startedAt": 1700000000000,
+    "completedAt": 1700000000050,
+    "durationMs": 50,
+    "status": "success",
+    "error": null
+  },
+  "expectedRedacted": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "System prompt containing [REDACTED] and [REDACTED]"
+      },
+      { "role": "user", "content": "user message" }
+    ],
+    "response": "Response mentions [REDACTED] and [REDACTED]"
+  },
+  "note": "The full commit hash depends on tree/parent etc. Tests compute a minimal empty-tree commit and assert redacted fields + that raw secrets do not appear in stored object JSON."
+}

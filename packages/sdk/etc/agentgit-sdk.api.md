@@ -70,7 +70,7 @@ export type LlmAutoCaptureOptions = false | {
 };
 
 // @public
-export function wrapAgentJS<T extends AgentLike>(agent: T, options?: WrapOptions): Promise<WrappedAgent<T>>;
+export function wrapAgentJS<T extends AgentLike>(agent: T, options?: WrapOptions): WrappedAgent<T>;
 
 // @public (undocumented)
 export interface WrapOptions {
