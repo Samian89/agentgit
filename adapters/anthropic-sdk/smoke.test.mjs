@@ -80,3 +80,76 @@ test("extractToolUses returns only tool_use blocks", () => {
   });
   assert.equal(blocks.length, 2);
 });
+
+test("wrapAnthropic records exactly one LlmCall per successful messages.create", async () => {
+  const recorder = inMemoryRecorder();
+  const client = wrapAnthropic(
+    {
+      messages: {
+        create: async (_params) => ({
+          id: "msg_llm_1",
+          model: "claude-opus-4-7",
+          content: [{ type: "text", text: "The answer is 42." }],
+          usage: { input_tokens: 12, output_tokens: 34 },
+        }),
+      },
+    },
+    { recorder },
+  );
+
+  await client.messages.create({
+    model: "claude-opus-4-7",
+    messages: [{ role: "user", content: "what is the answer?" }],
+  });
+
+  assert.equal(recorder.llmCalls.length, 1);
+  const llm = recorder.llmCalls[0];
+  assert.equal(llm.provider, "anthropic");
+  assert.equal(llm.model, "claude-opus-4-7");
+  assert.equal(llm.response, "The answer is 42.");
+  assert.deepEqual(llm.usage, { promptTokens: 12, completionTokens: 34, totalTokens: 46 });
+  assert.equal(typeof llm.costEstimateUsd, "number");
+  assert.ok(llm.costEstimateUsd > 0); // known model in pricing table
+  assert.equal(llm.status, "success");
+  assert.equal(llm.error, null);
+  assert.ok(typeof llm.durationMs === "number" && llm.durationMs >= 0);
+  assert.ok(Array.isArray(llm.messages) && llm.messages.length === 1);
+  assert.equal(llm.messages[0].role, "user");
+  assert.equal(llm.messages[0].content, "what is the answer?");
+});
+
+test("wrapAnthropic records status:error LlmCall, re-throws upstream error, and preserves tool tests", async () => {
+  const recorder = inMemoryRecorder();
+  const client = wrapAnthropic(
+    {
+      messages: {
+        create: async () => {
+          throw new Error("rate limit exceeded");
+        },
+      },
+    },
+    { recorder },
+  );
+
+  let threw = false;
+  let caught;
+  try {
+    await client.messages.create({
+      model: "claude-sonnet-4-6",
+      messages: [{ role: "user", content: "hi" }],
+    });
+  } catch (e) {
+    threw = true;
+    caught = e;
+  }
+  assert.equal(threw, true);
+  assert.match(String(caught), /rate limit exceeded/);
+
+  assert.equal(recorder.llmCalls.length, 1);
+  const errCall = recorder.llmCalls[0];
+  assert.equal(errCall.status, "error");
+  assert.equal(errCall.error, "Error: rate limit exceeded");
+  assert.equal(errCall.response, "");
+  assert.equal(errCall.model, "claude-sonnet-4-6");
+  assert.equal(errCall.provider, "anthropic");
+});

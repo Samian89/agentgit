@@ -7,6 +7,12 @@
 // turn.  This adapter wraps `anthropic.messages.create` so each tool_use →
 // tool_result pair becomes one AgentGit `ToolCall` commit.
 //
+// In addition, every `messages.create` call now emits exactly one `LlmCall`
+// (provider "anthropic") via the optional `recorder.recordLlm` hook, carrying
+// the normalized prompt messages, joined text response, usage, duration, and
+// costEstimateUsd (via the pricing helper). Tool-call and LLM recordings are
+// independent; both may fire for the same create() invocation.
+//
 // Design notes:
 //   * The recorder is injectable so smoke tests can run in-memory without
 //     pulling the heavy @agentgit/sdk + better-sqlite3 stack.
@@ -14,6 +20,10 @@
 //     monkey-patched `messages.create` — preserves any other client surface.
 //   * Tool calls without a matching tool_result are still committed when the
 //     wrapper is `flush()`-ed so partial conversations don't leak.
+//   * If the supplied recorder has no `recordLlm`, LLM events are silently ignored
+//     (backward compatible with pre-LlmCall recorders).
+import { randomUUID } from "node:crypto";
+import { estimateCost } from "./pricing.mjs";
 
 /**
  * @typedef {Object} ToolUseBlock
@@ -34,6 +44,22 @@
  * @property {unknown} output
  * @property {number} startedAt
  * @property {number|null} completedAt
+ * @property {"pending"|"success"|"error"} status
+ * @property {string|null} error
+ */
+
+/**
+ * @typedef {Object} RecordedLlmCall
+ * @property {string} id
+ * @property {string} provider  // "anthropic"
+ * @property {string} model
+ * @property {Array<{role:string,content:string}>} messages
+ * @property {string} response
+ * @property {{promptTokens:number, completionTokens:number, totalTokens:number}|null} usage
+ * @property {number|null} costEstimateUsd
+ * @property {number} startedAt
+ * @property {number|null} completedAt
+ * @property {number|null} durationMs
  * @property {"pending"|"success"|"error"} status
  * @property {string|null} error
  */
@@ -66,17 +92,30 @@ export function extractToolResults(message) {
  * Build a recorder backed by a simple in-memory array. Useful for tests and
  * for callers that want to drive their own persistence.
  *
+ * The recorder supports two independent hooks:
+ *   - record(toolCall) — existing ToolCall protocol (unchanged)
+ *   - recordLlm(llmCall) — new LlmCall protocol (added by this ticket)
+ *
+ * Callers may implement only one; the wrapper uses typeof checks.
+ *
  * @returns {{
+ *   calls: RecordedToolCall[],
+ *   llmCalls: RecordedLlmCall[],
  *   record: (call: RecordedToolCall) => void,
- *   calls: RecordedToolCall[]
+ *   recordLlm: (call: RecordedLlmCall) => void
  * }}
  */
 export function inMemoryRecorder() {
   const calls = [];
+  const llmCalls = [];
   return {
     calls,
+    llmCalls,
     record(call) {
       calls.push(call);
+    },
+    recordLlm(call) {
+      llmCalls.push(call);
     },
   };
 }
@@ -88,7 +127,7 @@ export function inMemoryRecorder() {
  *
  * @template T
  * @param {T & { messages: { create: Function } }} client
- * @param {{ recorder?: { record: (c: RecordedToolCall) => void } }} [options]
+ * @param {{ recorder?: { record?: (c: RecordedToolCall) => void, recordLlm?: (c: RecordedLlmCall) => void } }} [options]
  * @returns {T & { agentgit: { flush: () => void, pending: Map<string, RecordedToolCall> } }}
  */
 export function wrapAnthropic(client, options = {}) {
@@ -100,6 +139,39 @@ export function wrapAnthropic(client, options = {}) {
   // included in the *outbound* request — that's how Anthropic's API expects
   // the tool round-trip to look.
   const original = client.messages.create.bind(client.messages);
+
+  /**
+   * Normalize Anthropic messages (which may have content as string or array
+   * of blocks) into the canonical LlmMessage[] shape with string content.
+   * Non-text blocks (tool_use, tool_result) are represented as markers so the
+   * prompt history is preserved in the LlmCall record.
+   * @param {unknown} rawMessages
+   * @returns {Array<{role:string, content:string}>}
+   */
+  function normalizeMessages(rawMessages) {
+    if (!Array.isArray(rawMessages)) return [];
+    return rawMessages.map((m) => {
+      const role = m && typeof m.role === "string" ? m.role : "user";
+      let content = m ? m.content : "";
+      if (typeof content === "string") {
+        return { role, content };
+      }
+      if (Array.isArray(content)) {
+        const parts = content.map((b) => {
+          if (b && typeof b === "object") {
+            if (b.type === "text") return b.text ?? "";
+            if (b.type === "tool_use") return `[tool_use:${b.name || "unknown"}]`;
+            if (b.type === "tool_result") return `[tool_result:${b.tool_use_id || "unknown"}]`;
+            return JSON.stringify(b);
+          }
+          return String(b);
+        });
+        return { role, content: parts.join("\n") };
+      }
+      return { role, content: String(content ?? "") };
+    });
+  }
+
   client.messages.create = async (params) => {
     if (params && Array.isArray(params.messages)) {
       for (const msg of params.messages) {
@@ -115,7 +187,79 @@ export function wrapAnthropic(client, options = {}) {
         }
       }
     }
-    const response = await original(params);
+
+    const startedAt = Date.now();
+    let response;
+    try {
+      response = await original(params);
+    } catch (err) {
+      const completedAt = Date.now();
+      const durationMs = completedAt - startedAt;
+      const model = params && typeof params.model === "string" ? params.model : "unknown";
+      const messages = normalizeMessages(params && params.messages);
+      const errorCall = {
+        id: randomUUID(),
+        provider: "anthropic",
+        model,
+        messages,
+        response: "",
+        usage: null,
+        costEstimateUsd: null,
+        startedAt,
+        completedAt,
+        durationMs,
+        status: "error",
+        error: String(err),
+      };
+      if (typeof recorder.recordLlm === "function") {
+        recorder.recordLlm(errorCall);
+      }
+      throw err;
+    }
+
+    // Success path: emit exactly one LlmCall for this messages.create
+    const completedAt = Date.now();
+    const durationMs = completedAt - startedAt;
+    const model =
+      response && typeof response.model === "string"
+        ? response.model
+        : params && typeof params.model === "string"
+          ? params.model
+          : "unknown";
+    const text = response && Array.isArray(response.content)
+      ? response.content
+          .filter((b) => b && typeof b === "object" && b.type === "text")
+          .map((b) => (b.text ?? ""))
+          .join("\n")
+      : "";
+    const rawUsage = response && response.usage ? response.usage : null;
+    const usage = rawUsage
+      ? {
+          promptTokens: Number(rawUsage.input_tokens) || 0,
+          completionTokens: Number(rawUsage.output_tokens) || 0,
+          totalTokens:
+            (Number(rawUsage.input_tokens) || 0) + (Number(rawUsage.output_tokens) || 0),
+        }
+      : null;
+    const messages = normalizeMessages(params && params.messages);
+    const llmCall = {
+      id: randomUUID(),
+      provider: "anthropic",
+      model,
+      messages,
+      response: text,
+      usage,
+      costEstimateUsd: estimateCost(model, usage),
+      startedAt,
+      completedAt,
+      durationMs,
+      status: "success",
+      error: null,
+    };
+    if (typeof recorder.recordLlm === "function") {
+      recorder.recordLlm(llmCall);
+    }
+
     for (const block of extractToolUses(response)) {
       pending.set(block.id, {
         id: block.id,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Guard, Hash, ToolCall, ToolCallStatus } from "@agentgit/core";
+import type { Guard, Hash, LlmCallInput, ToolCall, ToolCallStatus } from "@agentgit/core";
 import {
   GuardRegistry,
   Repository,
@@ -200,4 +200,62 @@ export function wrapAgentJS<T extends AgentLike>(
   }) as unknown as WrappedAgent<T>;
 
   return proxy;
+}
+
+/**
+ * Create a recorder bridge suitable for passing to `wrapAnthropic(client, { recorder })`
+ * (or wrapAI) inside the SDK. The returned recorder's `recordLlm` method converts
+ * the adapter's RecordedLlmCall into a core LlmCallInput and calls
+ * `repo.recordLlmCall`, advancing the session's parentHash so LLM commits are
+ * chained with tool-call commits.
+ *
+ * This is the SDK-side half of the adapter → core wiring added for spec 003.
+ * (Full auto-detection of `agent.llm` lives in the sibling spec 002.)
+ */
+export function createLlmRecorderBridge(
+  repo: Repository,
+  sessionId: string,
+  getParent: () => Hash | null,
+  setParent: (h: Hash | null) => void,
+) {
+  return {
+    recordLlm(adapterLlmCall: {
+      id?: string;
+      provider: string;
+      model: string;
+      messages: Array<{ role: string; content: string }>;
+      response: string;
+      usage?: { promptTokens: number; completionTokens: number; totalTokens: number } | null;
+      costEstimateUsd?: number | null;
+      startedAt: number;
+      completedAt?: number | null;
+      durationMs?: number | null;
+      status?: "pending" | "success" | "error";
+      error?: string | null;
+    }) {
+      const input: LlmCallInput = {
+        sessionId,
+        provider: adapterLlmCall.provider,
+        model: adapterLlmCall.model,
+        messages: adapterLlmCall.messages as any,
+        response: adapterLlmCall.response,
+        usage: adapterLlmCall.usage ?? null,
+        costEstimateUsd: adapterLlmCall.costEstimateUsd ?? null,
+        startedAt: adapterLlmCall.startedAt,
+        status: adapterLlmCall.status ?? "success",
+        error: adapterLlmCall.error ?? null,
+        parentHash: getParent(),
+        ...(adapterLlmCall.id !== undefined ? { id: adapterLlmCall.id } : {}),
+        ...(adapterLlmCall.completedAt !== undefined ? { completedAt: adapterLlmCall.completedAt } : {}),
+        ...(adapterLlmCall.durationMs !== undefined ? { durationMs: adapterLlmCall.durationMs } : {}),
+      };
+      const commit = repo.recordLlmCall(input);
+      setParent(commit.hash);
+    },
+    // ToolCall recording bridge (for symmetry; adapters' record() still works via direct repo.commit in future)
+    record(_toolCall: unknown) {
+      // Tool calls continue to be handled by the existing proxy path.
+      // This no-op keeps the recorder shape compatible if both hooks are used.
+    },
+  };
 }
