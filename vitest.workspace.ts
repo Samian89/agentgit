@@ -29,4 +29,8 @@ export default defineWorkspace([
       environment: "node",
     },
   },
+  // web-viewer has its own vitest.config.ts (happy-dom + @vitejs/plugin-react),
+  // so reference the package directory to inherit that config rather than
+  // declaring environment inline.
+  "./packages/web-viewer",
 ]);
