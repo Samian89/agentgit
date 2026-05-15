@@ -342,9 +342,22 @@ When you write new code that mutates rows in these tables, do it through the
 `Repository` API rather than touching `SqliteIndex` directly — the repository
 orders writes so the FK graph stays consistent.
 
+## Multi-branch semantics
+
+Branches exist as refs (see [Refs and HEAD](#refs-and-head) above), but the
+per-session commit graph remains singly linked — `Commit.parent` is `Hash |
+null`, not a list. "Merging" two sessions in v0.2 is therefore defined as a
+cherry-pick replay: `agentgit cherry-pick <source> --onto <target>` walks the
+source commit chain from the merge base forward and rewrites each step on
+top of the target head, producing fresh commits with new hashes. Path-level
+conflicts abort cleanly without mutating the target. The reasoning behind
+this choice (versus three-way tree merges or removing branches entirely) is
+captured in [ADR 001 — Merge model](./adr/001-merge-model.md).
+
 ## Where to look next
 
 - **CLI behaviour**: [CLI reference](./cli-reference.md)
 - **Wrapping agents in code**: [SDK API](./sdk-api.md), [Adapters](./adapters.md)
 - **Reversibility**: [Safety guards](./safety-guards.md)
+- **Architecture decisions**: [ADR 001 — Merge model](./adr/001-merge-model.md)
 - **Things going wrong**: [Troubleshooting](./troubleshooting.md)

@@ -1,9 +1,12 @@
 import Database from "better-sqlite3";
+import { performance } from "node:perf_hooks";
 import {
   migrationStatus,
   runMigrations,
   type MigrationStatus,
 } from "./migrations/index.js";
+import type { Reporter } from "./telemetry/reporter.js";
+import { safeRecord } from "./telemetry/reporter.js";
 import type {
   Author,
   Blob,
@@ -78,7 +81,10 @@ interface TreeEntryRow {
 export class SqliteIndex {
   private readonly db: Database.Database;
 
-  constructor(dbPath: string) {
+  constructor(
+    dbPath: string,
+    private readonly reporter: Reporter | null = null,
+  ) {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
@@ -97,7 +103,25 @@ export class SqliteIndex {
 
   /** Wrap fn in a SQLite transaction; re-throws on error and rolls back. */
   transaction<T>(fn: () => T): T {
-    return this.db.transaction(fn)() as T;
+    const t0 = performance.now();
+    try {
+      return this.db.transaction(fn)() as T;
+    } finally {
+      safeRecord(this.reporter, {
+        name: "index.transaction",
+        durationMs: performance.now() - t0,
+      });
+    }
+  }
+
+  /**
+   * Direct access to the underlying better-sqlite3 handle. Intended for
+   * advanced cross-cutting operations (fsck, gc, repair tooling) that need
+   * to issue ad-hoc SQL not covered by the typed helpers above. Callers
+   * must not mutate schema or break invariants.
+   */
+  unsafeDb(): Database.Database {
+    return this.db;
   }
 
   // --------------------------------------------------------------------------

@@ -7,8 +7,9 @@
   "scripts": {
     "dev": "tauri dev",
     "dev:vite": "vite --port 1420",
-    "build": "tauri build",
+    "build": "vite build",
     "build:vite": "vite build",
+    "build:tauri": "tauri build",
     "pretest": "node scripts/seed-fixture.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -16,9 +17,11 @@
     "clean": "rimraf dist"
   },
   "dependencies": {
+    "@agentgit/ui-components": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-sql": "^2.0.0",
     "diff-match-patch": "^1.0.5",
+    "@radix-ui/react-context-menu": "^2.2.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

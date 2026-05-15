@@ -176,8 +176,24 @@ the same content-addressed store. Do not edit an object JSON file to make it
 match its filename; the correct fix is to restore the exact bytes for that
 hash.
 
-If `index.db` is corrupt but the object store is intact, AgentGit cannot
-rebuild the index today. `agentgit fsck` is planned, but it has not shipped.
+For most diagnoses, prefer the bundled `agentgit fsck` command over the ad hoc
+script above:
+
+```bash
+agentgit fsck            # human-readable report; exits non-zero on any error
+agentgit fsck --json     # machine-readable {ok, errors, warnings, stats} block
+agentgit fsck --repair   # quarantine corrupt files to .agentgit/objects.corrupt/
+                         # and drop obviously-orphaned refs/tree_entries rows
+```
+
+`fsck --repair` only ever moves corrupt files (it does not delete them) and
+limits row deletions to refs and tree_entries that point at an object which
+does not exist anywhere on disk. Commits and blobs rows with missing objects
+are reported but left in place — recover the missing object from a backup or
+copy of the store rather than dropping the row.
+
+If `index.db` is corrupt at the SQLite layer (PRAGMA integrity_check fails)
+but the object store is intact, AgentGit still cannot rebuild the index.
 Restore the whole `.agentgit/` directory from backup when you need queryable
 history back.
 
@@ -358,9 +374,26 @@ tree, and blob is its own filesystem object.
 
 ### Fix
 
-There is no supported partial prune command today. `agentgit gc` is planned,
-but until it ships the safe fix is to inventory the store, export what matters,
-and rotate whole stores rather than deleting selected rows from SQLite.
+Use `agentgit gc` to reclaim unreachable objects. The command walks every ref,
+session head, and HEAD pointer and soft-deletes object files that nothing
+reaches into `.agentgit/objects.gc/<2>/<62>`, recording each move in
+`.agentgit/objects.gc/manifest.jsonl`:
+
+```bash
+agentgit gc --dry-run                    # show what would move; no writes
+agentgit gc                              # soft-delete unreachable objects
+agentgit gc --prune-older-than=30d       # also hard-delete files in
+                                         # objects.gc/ older than 30 days
+agentgit gc --prune-older-than=0d        # hard-delete every soft-deleted file
+```
+
+`gc` refuses to run while any session is `status='active'` (the active session
+could write new refs mid-traversal); pass `--force` only when you have stopped
+the agent. The soft-delete-then-prune model gives a recovery window: if a
+mistakenly-deleted object turns out to be needed, move it back from
+`objects.gc/<2>/<62>` to `objects/<2>/<62>` before the prune runs.
+
+If you still want the manual inventory below for a one-off audit:
 
 Inventory sessions and object count with read-only commands:
 
@@ -427,8 +460,8 @@ external storage or let the CI workspace cleanup remove it. Reclaim space at
 the directory level; avoid deleting selected object shards or SQLite rows by
 hand.
 
-For a long-lived repository, keep the existing store and wait for first-class
-`agentgit gc` instead of running ad hoc SQL. The schema has two important traps:
+For a long-lived repository, prefer `agentgit gc` over hand-deleting SQLite
+rows. The schema has two important traps that the command already handles:
 
 - `tree_entries.tree_hash` is not a foreign key, so deleting commits or
   sessions does not automatically delete stale tree-entry projections.
@@ -436,5 +469,6 @@ For a long-lived repository, keep the existing store and wait for first-class
   `tree_entries` rows even after the session that originally wrote them is
   gone.
 
-Those details are why the planned `gc` command must compute reachability across
-refs, session heads, commits, trees, and blobs before it moves any object file.
+`gc` computes reachability across refs, session heads, commits, trees, and
+blobs before it moves any object file, which is why it is safe to run while
+those traps are present in the underlying schema.

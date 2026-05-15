@@ -24,6 +24,26 @@ export { SqliteIndex } from "./sqlite-index.js";
 export { Repository } from "./repository.js";
 export type { StateEntry, CommitInput } from "./repository.js";
 
+export { gc, reachableObjects } from "./gc.js";
+export type { GcOptions, GcResult } from "./gc.js";
+export { cherryPick } from "./cherry-pick.js";
+export type {
+  CherryPickInput,
+  CherryPickResult,
+  CherryPickOk,
+  CherryPickConflict,
+  CherryPickNoop,
+  CherryPickError,
+} from "./cherry-pick.js";
+export { fsck } from "./fsck.js";
+export type {
+  FsckIssue,
+  FsckIssueType,
+  FsckOptions,
+  FsckReport,
+  FsckStats,
+} from "./fsck.js";
+
 export {
   MIGRATIONS,
   TARGET_VERSION,
@@ -43,7 +63,19 @@ export {
   setConfigValue,
   getConfigValue,
 } from "./config.js";
-export type { AgentGitConfig, GuardsConfig } from "./config.js";
+export type {
+  AgentGitConfig,
+  GuardsConfig,
+  TelemetryConfigShape,
+} from "./config.js";
+
+export {
+  ConsoleReporter,
+  OTLPReporter,
+  buildReporter,
+  safeRecord,
+} from "./telemetry/index.js";
+export type { Reporter, Span, TelemetryConfig } from "./telemetry/index.js";
 
 export { generateKeyPair, signMessage, verifyMessage } from "./signing.js";
 export type { Ed25519KeyPair } from "./signing.js";
@@ -68,6 +100,40 @@ export type {
   ImportBundleOptions,
   ImportBundleResult,
 } from "./bundle/index.js";
+
+export {
+  REMOTE_PROTOCOL_PREFIX,
+  REMOTE_PROTOCOL_VERSION,
+  RemoteProtocolError,
+  RemoteClient,
+  pushSession,
+  fetchRefs,
+  pullRef,
+  remoteStateFilePath,
+} from "./remote/index.js";
+export type {
+  RefsListRequest,
+  RefsListResponse,
+  RemoteRef,
+  ObjectsMissingRequest,
+  ObjectsMissingResponse,
+  UploadLine,
+  ObjectsUploadResponse,
+  ObjectsDownloadRequest,
+  RefsUpdateRequest,
+  RefsUpdateResponse,
+  RemoteError,
+  RemoteClientOptions,
+  FetchLike,
+  PushOptions,
+  PushResult,
+  FetchOptions,
+  FetchResult,
+  PullOptions,
+  PullResult,
+  RemoteUploadState,
+  RemoteStateFile,
+} from "./remote/index.js";
 
 export type {
   Guard,

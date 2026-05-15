@@ -9,6 +9,10 @@ ADAPTER_ROOT = Path(__file__).resolve().parents[1]
 if str(ADAPTER_ROOT) not in sys.path:
     sys.path.insert(0, str(ADAPTER_ROOT))
 
+# Register the pytest plugin module by path so the `agentgit_session` fixture
+# is available without requiring `pip install agentgit-adapter` first.
+pytest_plugins = ["agentgit_adapter.pytest_plugin"]
+
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS sessions (
     id          TEXT    NOT NULL PRIMARY KEY,

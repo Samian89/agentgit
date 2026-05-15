@@ -1,0 +1,16 @@
+{
+  "name": "@agentgit/benchmarks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node ./harness.js",
+    "bench:check": "node ./harness.js --check"
+  },
+  "dependencies": {
+    "@agentgit/core": "workspace:*"
+  },
+  "devDependencies": {
+    "tinybench": "^2.9.0"
+  }
+}

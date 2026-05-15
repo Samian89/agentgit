@@ -1,0 +1,164 @@
+{
+  "version": 1,
+  "featureId": "feat-ffe9123e",
+  "summary": "Drive agentgit from MVP to v0.2: documentation overhaul, schema migrations with author identity, default-safe guards with shared config, portable bundle format plus web viewer, remote sync, merge-model ADR + cherry-pick, gc/fsck, Tauri write-side UI, adapter expansion, and the perf/API/CI/telemetry ops backbone.",
+  "tasks": [
+    {
+      "title": "Documentation overhaul",
+      "goal": "Replace the one-line README with a full landing page, write docs/architecture.md (object-store + ER + sequence diagrams + canonical-JSON + invariants), and write docs/troubleshooting.md (six failure-mode sections with repros + fixes). Wire the new pages into VitePress.",
+      "specRef": "specs/feat-ffe9123e/001-docs-overhaul/spec.md",
+      "acceptanceCriteria": [
+        "README contains tagline, pitch, install line, wrapAgentJS snippet, feature matrix, links to architecture and troubleshooting, and shields.io badges.",
+        "docs/architecture.md has object-store layout diagram, SQLite ER diagram, wrapAgentJS sequence diagram, and prose for canonical-JSON + hash-field-strip + WAL + FK invariants.",
+        "docs/troubleshooting.md covers SQLite locking, corrupted store recovery, symlinks, large blobs, Windows path length, and .agentgit/ size management — each with a repro recipe and a fix.",
+        "pnpm docs:build succeeds with the new pages."
+      ],
+      "filesAllowed": "README.md, docs/**",
+      "testCommand": "pnpm docs:build",
+      "phase": "spec",
+      "dependsOn": []
+    },
+    {
+      "title": "Schema migrations and author identity",
+      "goal": "Introduce packages/core/src/migrations/ with a numbered runner and schema_version table, add author to Commit, ship agentgit config and agentgit migrate CLI commands, implement optional Ed25519 signing with agentgit verify, and update the Python adapter to apply the same migrations.",
+      "specRef": "specs/feat-ffe9123e/002-migrations-and-identity/spec.md",
+      "acceptanceCriteria": [
+        "Migration runner upgrades a v0.1 fixture DB to version 2 and refuses to open a DB with version higher than bundled migrations.",
+        "Commit type includes author; agentgit config user.name/user.email persists to .agentgit/config.json and is picked up on commit.",
+        "agentgit verify <hash> succeeds for a signed commit and fails for a tampered one.",
+        "Python adapter produces a schema-identical sqlite_master dump to a TS-created repo at version 2.",
+        "agentgit migrate --check returns non-zero when migrations are pending."
+      ],
+      "filesAllowed": "packages/core/**, packages/cli/**, adapters/python/**",
+      "testCommand": "pnpm test && pnpm --filter @agentgit/cli test:integration && pytest adapters/python",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Default-safe guards and repository config",
+      "goal": "Make wrapAgentJS apply ConfirmationGuard + SnapshotGuard by default with opt-out via { guards: false }, load guard/allowlist/denylist/auto-confirm settings from .agentgit/config.json, port the two guards to Python, and apply matching defaults in the Python AgentWrapper and LangChain handler.",
+      "specRef": "specs/feat-ffe9123e/003-default-guards-and-config/spec.md",
+      "acceptanceCriteria": [
+        "wrapAgentJS(agent) with no options blocks a naive bash rm -rf call via the default ConfirmationGuard.",
+        "wrapAgentJS(agent, { guards: false }) applies no guards; wrapAgentJS(agent, { guards: [...] }) applies exactly the provided array.",
+        ".agentgit/config.json guards section overrides defaults (autoConfirm entry suppresses prompt for that tool).",
+        "AgentWrapper(agent) and AgentGitCallbackHandler() default to the same two guards with guards=False opt-out.",
+        "All existing 117 core + 4 CLI + 29 Python + 20 LangChain tests still pass after updates."
+      ],
+      "filesAllowed": "packages/sdk/**, packages/core/**, adapters/**",
+      "testCommand": "pnpm test && pytest adapters/python adapters/langchain",
+      "phase": "build",
+      "dependsOn": ["Schema migrations and author identity"]
+    },
+    {
+      "title": "Bundle format and web viewer",
+      "goal": "Define the .agentgit-bundle gzipped-tar format with manifest.json + reachable objects + commits/refs/sessions, ship agentgit bundle create/import commands that verify every hash, and build packages/web-viewer/ that opens a dropped bundle (or ?bundle=<url>) using the existing UI components against an in-memory index.",
+      "specRef": "specs/feat-ffe9123e/004-bundle-and-web-viewer/spec.md",
+      "acceptanceCriteria": [
+        "agentgit bundle create produces a .agentgit-bundle; agentgit bundle import on a clean repo restores it and verifies every blob hash.",
+        "Round-trip test: create → import to fresh repo → agentgit log matches original.",
+        "Bundle whose manifest.schemaVersion > client is refused; tampered bundle (byte-flipped) is refused with no partial writes.",
+        "packages/web-viewer/ builds and renders a dropped .agentgit-bundle using shared UI components with no native dependencies."
+      ],
+      "filesAllowed": "packages/core/**, packages/cli/**, packages/ui-components/**, packages/ui/**, packages/web-viewer/**, pnpm-workspace.yaml",
+      "testCommand": "pnpm test && pnpm --filter @agentgit/web-viewer build",
+      "phase": "build",
+      "dependsOn": ["Schema migrations and author identity"]
+    },
+    {
+      "title": "Remote sync with reference server",
+      "goal": "Design and document a JSON-over-HTTPS remote protocol (refs/list, objects/missing, objects/upload with resumable Upload-Id, objects/download, refs/update); implement agentgit remote add/list/remove, push, fetch, pull (fast-forward-only); ship packages/remote-server/ (Fastify) and Tauri 'Share session' UI.",
+      "specRef": "specs/feat-ffe9123e/005-remote-sync/spec.md",
+      "acceptanceCriteria": [
+        "docs/remote-protocol.md documents all five endpoints, the bearer-token auth model, and the JSON-vs-packfile bandwidth tradeoff.",
+        "Two-machine round-trip: push from A, fetch on B, agentgit log on B matches A.",
+        "Mid-push failure: server killed during upload, retry succeeds without re-uploading already-acknowledged chunks.",
+        "agentgit pull is fast-forward-only and refuses non-FF until merge support lands.",
+        "Tauri 'Share session' button pushes to a configured remote and copies a shareable URL to clipboard on success."
+      ],
+      "filesAllowed": "docs/remote-protocol.md, packages/core/**, packages/cli/**, packages/remote-server/**, packages/ui/**",
+      "testCommand": "pnpm test && pnpm --filter @agentgit/remote-server test",
+      "phase": "build",
+      "dependsOn": ["Bundle format and web viewer"]
+    },
+    {
+      "title": "Merge model ADR and cherry-pick",
+      "goal": "Write docs/adr/001-merge-model.md picking cherry-pick replay as the v0.2 merge semantics, then implement agentgit merge-base <a> <b> and agentgit cherry-pick <source> --onto <target> with explicit conflict reporting and clean abort behaviour.",
+      "specRef": "specs/feat-ffe9123e/006-merge-model-adr/spec.md",
+      "acceptanceCriteria": [
+        "docs/adr/001-merge-model.md states the three options, picks one with reasoning, and is linked from docs/architecture.md.",
+        "agentgit merge-base returns correct LCA on linear, fork, and double-fork fixture graphs.",
+        "agentgit cherry-pick produces new commits whose tool calls match the source but whose hashes are fresh with new parents.",
+        "A path-level conflict exits non-zero with a clear path list and leaves no partial mutation in the target session."
+      ],
+      "filesAllowed": "docs/adr/**, docs/architecture.md, packages/core/**, packages/cli/**",
+      "testCommand": "pnpm test && pnpm --filter @agentgit/cli test:integration",
+      "phase": "build",
+      "dependsOn": ["Documentation overhaul"]
+    },
+    {
+      "title": "Garbage collection and integrity checker",
+      "goal": "Implement agentgit gc with reachability walk + soft-delete to .agentgit/objects.gc/ + hard-prune after --prune-older-than, and agentgit fsck that recomputes every object hash, cross-checks the SQLite index, validates schema_version, supports --json output, and offers safe --repair.",
+      "specRef": "specs/feat-ffe9123e/007-gc-and-fsck/spec.md",
+      "acceptanceCriteria": [
+        "agentgit gc on a repo with orphans soft-deletes them; reachable objects untouched; refs still resolve.",
+        "Subsequent agentgit gc --prune-older-than=0d hard-deletes the soft-deleted set; --dry-run makes no changes.",
+        "agentgit fsck on a healthy repo exits 0; deliberately corrupting an object → fsck reports the mismatch; --repair quarantines it to objects.corrupt/.",
+        "agentgit fsck --json emits parseable JSON matching the documented schema and detects orphaned index rows pointing to missing objects."
+      ],
+      "filesAllowed": "packages/core/**, packages/cli/**, docs/troubleshooting.md",
+      "testCommand": "pnpm test && pnpm --filter @agentgit/cli test:integration",
+      "phase": "build",
+      "dependsOn": ["Schema migrations and author identity", "Documentation overhaul"]
+    },
+    {
+      "title": "Tauri UI write-side features",
+      "goal": "Add six new Tauri IPC commands (create_session, replay_from_commit, export_bundle, abandon_session, read_config, write_config) and React UI for New Session, right-click Replay-from-here, right-click Export-as-bundle, Abandon Session (typed confirmation), and a Settings panel covering user identity / signing / guard configuration.",
+      "specRef": "specs/feat-ffe9123e/008-ui-write-features/spec.md",
+      "acceptanceCriteria": [
+        "New Session button creates a session via IPC and selects it in the list.",
+        "Right-click Replay-from-here creates a new session whose first commit's tree matches the source commit's tree.",
+        "Right-click Export-as-bundle writes a .agentgit-bundle that imports cleanly on a fresh repo.",
+        "Abandon Session requires typed confirmation; session status becomes abandoned and is filtered from the default list.",
+        "Settings panel loads/saves .agentgit/config.json and a newly wrapped agent picks up changed guard settings without restarting the UI."
+      ],
+      "filesAllowed": "packages/ui/**",
+      "testCommand": "pnpm --filter @agentgit/ui test && pnpm --filter @agentgit/ui build",
+      "phase": "build",
+      "dependsOn": ["Bundle format and web viewer", "Default-safe guards and repository config"]
+    },
+    {
+      "title": "Adapter expansion and auto-instrumentation",
+      "goal": "Ship Python @agentgit_record decorator, auto_install() global LangChain handler, pytest plugin agentgit_session fixture, a runnable examples/langchain-react-agent/, and full adapters for OpenAI Agents SDK, Anthropic SDK tool_use blocks, Vercel AI SDK, AutoGen, and CrewAI — each with a passing smoke test and a ≤3-line README snippet.",
+      "specRef": "specs/feat-ffe9123e/009-adapter-expansion/spec.md",
+      "acceptanceCriteria": [
+        "@agentgit_record decorator and auto_install() each produce commits in their test case.",
+        "agentgit_session pytest fixture yields a working repo usable from a sample test.",
+        "examples/langchain-react-agent/run.ts runs end-to-end with a mocked LLM and produces a session visible in agentgit log and the UI.",
+        "Each of openai-agents, anthropic-sdk, vercel-ai-sdk, autogen, crewai adapters builds, passes its smoke test, and ships a ≤3-line README snippet.",
+        "Sessions produced by every adapter open identically in the Tauri UI (manual verification recorded)."
+      ],
+      "filesAllowed": "adapters/**, examples/**",
+      "testCommand": "pnpm test && pytest adapters/python adapters/langchain adapters/openai-agents adapters/autogen adapters/crewai",
+      "phase": "build",
+      "dependsOn": ["Default-safe guards and repository config"]
+    },
+    {
+      "title": "Performance, public API, CI, and telemetry backbone",
+      "goal": "Add benchmarks/ (tinybench) with budgets enforced by pnpm bench --check, wire @microsoft/api-extractor for @agentgit/core and @agentgit/sdk with committed .api.md baselines and docs/semver-policy.md, create .github/workflows/ci.yml covering typecheck/unit/integration/python/bench/api-extractor, extend release.yml with PyPI publish, and implement a pluggable opt-in Reporter (console default, OTLP optional) with a documented privacy stance.",
+      "specRef": "specs/feat-ffe9123e/010-perf-api-ci-telemetry/spec.md",
+      "acceptanceCriteria": [
+        "benchmarks/ has the four named scenarios; pnpm bench --check fails when log > 200ms, diff > 500ms, or UI load > 1s.",
+        "api-extractor runs in CI for core and sdk; committed .api.md baselines fail builds on accidental surface changes; docs/semver-policy.md documents @public/@beta/@internal and deprecation flow.",
+        ".github/workflows/ci.yml runs typecheck, unit, integration, Python (3.10/3.11/3.12), bench, and api-extractor jobs on PR.",
+        "Tag pushes publish npm packages and (via OIDC) PyPI packages for agentgit-adapter and agentgit-langchain.",
+        "telemetry.enabled=true emits commit, guard.evaluate, and objectstore.write spans to the configured reporter; telemetry.enabled=false (default) emits nothing.",
+        "README contains the privacy paragraph stating no data leaves the machine by default."
+      ],
+      "filesAllowed": "benchmarks/**, packages/**, docs/**, .github/workflows/**, README.md",
+      "testCommand": "pnpm typecheck && pnpm test && pnpm bench --check",
+      "phase": "build",
+      "dependsOn": ["Schema migrations and author identity", "Default-safe guards and repository config"]
+    }
+  ]
+}

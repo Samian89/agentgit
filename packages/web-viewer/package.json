@@ -1,0 +1,31 @@
+{
+  "name": "@agentgit/web-viewer",
+  "version": "0.1.0",
+  "description": "Browser-based read-only viewer for .agentgit-bundle files (drag-drop or ?bundle=<url>)",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@agentgit/ui-components": "workspace:*",
+    "pako": "^2.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/pako": "^2.0.3",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "rimraf": "*",
+    "typescript": "*",
+    "vite": "^5.3.4"
+  }
+}

@@ -77,7 +77,8 @@ export function importBundleFile(opts: ImportBundleOptions): ImportBundleResult 
   opts.repo.index.transaction(() => {
     // Sessions are inserted with head=null first to avoid a chicken-and-egg
     // FK violation (sessions.head → commits.hash, commits.session_id → sessions.id).
-    // The real head is set after the commits land.
+    // The real head is set later in the same transaction, so the DB never
+    // observes a sessions row whose head should have been set but wasn't.
     for (const session of result.sessions) {
       if (!opts.repo.index.getSession(session.id)) {
         opts.repo.index.insertSession({ ...session, head: null });
@@ -115,21 +116,21 @@ export function importBundleFile(opts: ImportBundleOptions): ImportBundleResult 
       opts.repo.index.upsertRef(ref);
       refsInserted++;
     }
-  });
 
-  // Now that commits exist, reattach session heads. We only touch heads for
-  // sessions that have none — never overwrite a pre-existing head, so a
-  // re-import or partial overlap remains idempotent.
-  for (const session of result.sessions) {
-    const existing = opts.repo.index.getSession(session.id);
-    if (existing && existing.head === null && session.head !== null) {
-      opts.repo.index.updateSessionHead(
-        session.id,
-        session.head,
-        session.updatedAt,
-      );
+    // Reattach session heads inside the same transaction. We only touch heads
+    // for sessions that have none — never overwrite a pre-existing head, so a
+    // re-import or partial overlap remains idempotent.
+    for (const session of result.sessions) {
+      const existing = opts.repo.index.getSession(session.id);
+      if (existing && existing.head === null && session.head !== null) {
+        opts.repo.index.updateSessionHead(
+          session.id,
+          session.head,
+          session.updatedAt,
+        );
+      }
     }
-  }
+  });
 
   // Disk writes happen LAST. ObjectStore.write is idempotent and content-
   // addressed, so writing only after the DB commits means a failure earlier

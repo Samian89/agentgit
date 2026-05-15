@@ -353,6 +353,175 @@ describe("bundle reachability validation", () => {
     ).toThrow(/ref dangling targets missing commit/);
   });
 
+  it("refuses a bundle whose manifest.sessionIds is missing a session present in sessions.json", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const me = entries.find((e) => e.name === "manifest.json")!;
+    const manifest = JSON.parse(new TextDecoder().decode(me.data));
+    manifest.sessionIds = []; // declare zero sessions while sessions.json still has one
+    me.data = new TextEncoder().encode(JSON.stringify(manifest));
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/manifest\.sessionIds does not declare it/);
+  });
+
+  it("refuses a bundle whose manifest.sessionIds names a session missing from sessions.json", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const me = entries.find((e) => e.name === "manifest.json")!;
+    const manifest = JSON.parse(new TextDecoder().decode(me.data));
+    manifest.sessionIds = [...manifest.sessionIds, "phantom-session"];
+    me.data = new TextEncoder().encode(JSON.stringify(manifest));
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/sessions\.json does not contain it/);
+  });
+
+  it("refuses a bundle whose manifest.formatVersion is missing", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const me = entries.find((e) => e.name === "manifest.json")!;
+    const manifest = JSON.parse(new TextDecoder().decode(me.data));
+    delete manifest.formatVersion;
+    me.data = new TextEncoder().encode(JSON.stringify(manifest));
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/manifest\.formatVersion must be a positive integer/);
+  });
+
+  it("refuses a bundle whose manifest.schemaVersion is a string", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const me = entries.find((e) => e.name === "manifest.json")!;
+    const manifest = JSON.parse(new TextDecoder().decode(me.data));
+    manifest.schemaVersion = "two";
+    me.data = new TextEncoder().encode(JSON.stringify(manifest));
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/manifest\.schemaVersion must be a positive integer/);
+  });
+
+  it("refuses a bundle whose session has an invalid status", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const sessionsEntry = entries.find((e) => e.name === "sessions.json")!;
+    const sessions = JSON.parse(new TextDecoder().decode(sessionsEntry.data));
+    sessions[0].status = "in-orbit";
+    sessionsEntry.data = new TextEncoder().encode(JSON.stringify(sessions));
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/invalid status/);
+  });
+
+  it("refuses a bundle whose sessions.json lists the same id twice", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const sessionsEntry = entries.find((e) => e.name === "sessions.json")!;
+    const sessions = JSON.parse(new TextDecoder().decode(sessionsEntry.data));
+    sessions.push(sessions[0]); // duplicate
+    sessionsEntry.data = new TextEncoder().encode(JSON.stringify(sessions));
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/appears more than once in sessions.json/);
+  });
+
+  it("refuses a bundle whose ref has an invalid type", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const refsEntry = entries.find((e) => e.name === "refs.json")!;
+    const head = srcRepo.getSession(sessionId)!.head!;
+    refsEntry.data = new TextEncoder().encode(
+      JSON.stringify([
+        { name: "bogus", target: head, type: "junk", updatedAt: 0 },
+      ]),
+    );
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/invalid type/);
+  });
+
+  it("refuses a bundle whose commits.jsonl row is missing a required field", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const ce = entries.find((e) => e.name === "commits.jsonl")!;
+    const lines = new TextDecoder().decode(ce.data).trim().split("\n");
+    const parsed = JSON.parse(lines[0]!);
+    delete parsed.message;
+    lines[0] = JSON.stringify(parsed);
+    ce.data = new TextEncoder().encode(lines.join("\n") + "\n");
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/missing a string message/);
+  });
+
+  it("refuses a bundle whose commit references a session not in sessions.json", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+
+    // Drop the session from sessions.json. The commits still reference it,
+    // so unpack must reject with a "missing session" error instead of
+    // letting SQLite's FK fire mid-transaction.
+    const sessionsEntry = entries.find((e) => e.name === "sessions.json")!;
+    sessionsEntry.data = new TextEncoder().encode("[]");
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/references missing session/);
+  });
+
   it("refuses a bundle whose session.head is missing from commits.jsonl", () => {
     const { sessionId } = seedTwoCommits();
     const { tar } = pack({
@@ -494,6 +663,32 @@ describe("bundle reachability validation", () => {
   });
 });
 
+describe("bundle commits.jsonl integrity", () => {
+  it("refuses a bundle whose commits.jsonl lists the same hash twice", () => {
+    const { sessionId } = seedTwoCommits();
+    const { tar } = pack({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      schemaVersion: TARGET_VERSION,
+    });
+    const entries = readTar(tar);
+    const ce = entries.find((e) => e.name === "commits.jsonl")!;
+    const lines = new TextDecoder()
+      .decode(ce.data)
+      .trim()
+      .split("\n");
+    // Duplicate the first commit line — same hash, same body. Hash check
+    // still passes, but the duplicate-hash invariant must fire.
+    ce.data = new TextEncoder().encode(
+      [lines[0], lines[0], lines[1]].join("\n") + "\n",
+    );
+
+    expect(() =>
+      unpack(writeTar(entries), { clientSchemaVersion: TARGET_VERSION }),
+    ).toThrow(/appears more than once/);
+  });
+});
+
 describe("bundle import disk atomicity", () => {
   it("never writes object files when the bundle is rejected", () => {
     const { sessionId } = seedTwoCommits();
@@ -528,6 +723,28 @@ describe("bundle import disk atomicity", () => {
       ).toThrow();
       expect(countObjectFiles(join(dstDir, ".agentgit", "objects"))).toBe(0);
       expect(dstRepo.index.listSessions()).toHaveLength(0);
+    } finally {
+      dstRepo.index.close();
+    }
+  });
+
+  it("reattaches session head inside the same transaction as the commits", () => {
+    const { sessionId } = seedTwoCommits();
+    const bundlePath = join(baseDir, "head-atomic.agentgit-bundle");
+    createBundleFile({
+      repo: srcRepo,
+      sessionIds: [sessionId],
+      outPath: bundlePath,
+    });
+
+    const { repo: dstRepo } = makeRepo("dst");
+    try {
+      importBundleFile({ repo: dstRepo, filePath: bundlePath });
+      const session = dstRepo.index.getSession(sessionId);
+      // After a successful import the session's head must equal the source
+      // session's head — never null. If the head reattachment were outside
+      // the transaction, an interrupted import could leave head=null here.
+      expect(session?.head).toBe(srcRepo.getSession(sessionId)!.head);
     } finally {
       dstRepo.index.close();
     }

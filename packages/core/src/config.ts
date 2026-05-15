@@ -32,6 +32,21 @@ export interface GuardsConfig {
   };
 }
 
+/**
+ * Opt-in telemetry config. No spans are emitted unless `enabled === true`.
+ * Reporters receive span names + durations + benign attributes only.
+ */
+export interface TelemetryConfigShape {
+  /** Master switch — default `false`. */
+  enabled?: boolean;
+  /** Reporter implementation — default `"console"`. */
+  reporter?: "console" | "otlp";
+  /** OTLP endpoint (required for `reporter: "otlp"`). */
+  endpoint?: string;
+  /** Optional service-name attribute. */
+  serviceName?: string;
+}
+
 /** Shape of `.agentgit/config.json`. */
 export interface AgentGitConfig {
   user?: Partial<Author>;
@@ -44,6 +59,7 @@ export interface AgentGitConfig {
     publicKey?: string;
   };
   guards?: GuardsConfig;
+  telemetry?: TelemetryConfigShape;
   [key: string]: unknown;
 }
 

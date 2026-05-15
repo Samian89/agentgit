@@ -1,0 +1,13 @@
+{
+  "packageManager": "pnpm",
+  "install": "pnpm install",
+  "services": [
+    {
+      "name": "web",
+      "command": "pnpm run dev",
+      "primary": true,
+      "port": null,
+      "portRegex": null
+    }
+  ]
+}

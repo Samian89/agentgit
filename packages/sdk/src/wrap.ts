@@ -59,7 +59,7 @@ export function wrapAgentJS<T extends AgentLike>(
   } else {
     guards = buildDefaultGuards(loadConfig(repoDir), repo.objects);
   }
-  const guardRegistry = new GuardRegistry(guards);
+  const guardRegistry = new GuardRegistry(guards, repo.reporter);
 
   let parentHash: Hash | null = null;
 

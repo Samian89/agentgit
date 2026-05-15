@@ -1,0 +1,12 @@
+{
+  "name": "@agentgit/adapter-vercel-ai-sdk",
+  "version": "0.1.0",
+  "description": "AgentGit adapter for the Vercel AI SDK",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "test": "node --test smoke.test.mjs"
+  }
+}

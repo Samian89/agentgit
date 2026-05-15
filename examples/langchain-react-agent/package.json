@@ -1,0 +1,17 @@
+{
+  "name": "langchain-react-agent",
+  "version": "0.1.0",
+  "description": "Example: a mocked LangChain ReAct-style agent wrapped with AgentGit",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types run.ts"
+  },
+  "dependencies": {
+    "@agentgit/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@agentgit/cli": "workspace:*"
+  }
+}

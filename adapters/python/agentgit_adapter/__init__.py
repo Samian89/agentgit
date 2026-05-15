@@ -1,4 +1,5 @@
 from .adapter import AgentWrapper, wrap_agent
+from .decorator import agentgit_record
 from .guards import (
     ConfirmationGuard,
     GuardRegistry,
@@ -18,6 +19,7 @@ from .migrations import (
 __all__ = [
     "AgentWrapper",
     "wrap_agent",
+    "agentgit_record",
     "ConfirmationGuard",
     "SnapshotGuard",
     "GuardRegistry",

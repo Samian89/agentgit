@@ -73,6 +73,32 @@ agentgit export demo > demo.agentgit.json
 | Default `ConfirmationGuard` and `SnapshotGuard` | Performance API, telemetry, and CI hardening |
 | Tauri read UI for timeline, diffs, and blame | UI write actions |
 
+## Privacy
+
+AgentGit emits no telemetry by default. Nothing leaves your machine
+unless you explicitly opt in by setting `telemetry.enabled = true` in
+`.agentgit/config.json`.
+
+When telemetry is on, the configured reporter (console by default,
+OTLP available as an opt-in) receives ONLY:
+
+- span name (one of: `commit`, `guard.evaluate`, `objectstore.write`,
+  `objectstore.read`, `index.transaction`),
+- duration in milliseconds,
+- span-specific benign attributes (never user data or identifiers):
+  - `commit`: `{ entries: number, signed: boolean }`
+  - `guard.evaluate`: `{ outcome: "allow" | "block", guards: number }`
+  - `objectstore.write`: `{ deduped: boolean }`
+  - `objectstore.read`, `index.transaction`: no attrs (`{}`)
+
+Reporters MUST NOT receive: commit messages, tool names, tool inputs or
+outputs, file paths, file contents, session IDs, hashes, or any other
+user-supplied data. The privacy contract (matching the exact emitted
+attributes) is documented on the `Reporter` / `Span` interfaces in
+`packages/core/src/telemetry/reporter.ts`. See also
+[docs/semver-policy.md](./docs/semver-policy.md) for the public-API
+surface contract.
+
 ## Documentation
 
 - [Quickstart](./docs/quickstart.md) - install, wrap, run, log, diff, replay.

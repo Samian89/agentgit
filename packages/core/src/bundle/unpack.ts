@@ -86,6 +86,45 @@ export function unpack(tar: Uint8Array, opts: UnpackOptions): UnpackResult {
   if (!manifest) {
     throw new Error("Bundle: missing manifest.json");
   }
+  // Validate manifest fields BEFORE the version comparisons. A malformed
+  // manifest (missing fields, wrong types) would otherwise slip past
+  // `undefined > 1` checks and appear version-compatible.
+  const m = manifest as unknown as Record<string, unknown>;
+  if (
+    typeof m["formatVersion"] !== "number" ||
+    !Number.isInteger(m["formatVersion"]) ||
+    m["formatVersion"] < 1
+  ) {
+    throw new Error(
+      "Bundle: manifest.formatVersion must be a positive integer",
+    );
+  }
+  if (
+    typeof m["schemaVersion"] !== "number" ||
+    !Number.isInteger(m["schemaVersion"]) ||
+    m["schemaVersion"] < 1
+  ) {
+    throw new Error(
+      "Bundle: manifest.schemaVersion must be a positive integer",
+    );
+  }
+  if (!Array.isArray(m["sessionIds"])) {
+    throw new Error("Bundle: manifest.sessionIds must be an array");
+  }
+  for (const sid of m["sessionIds"] as unknown[]) {
+    if (typeof sid !== "string" || sid === "") {
+      throw new Error(
+        "Bundle: manifest.sessionIds must contain non-empty strings",
+      );
+    }
+  }
+  if (typeof m["createdAt"] !== "number" || !Number.isFinite(m["createdAt"])) {
+    throw new Error("Bundle: manifest.createdAt must be a finite number");
+  }
+  if (typeof m["generator"] !== "string") {
+    throw new Error("Bundle: manifest.generator must be a string");
+  }
+
   if (manifest.formatVersion > clientFormat) {
     throw new Error(
       `Bundle: formatVersion ${manifest.formatVersion} is newer than this client (${clientFormat})`,
@@ -98,9 +137,51 @@ export function unpack(tar: Uint8Array, opts: UnpackOptions): UnpackResult {
   }
 
   // Verify every commit's hash matches the stored body, and is mirrored in
-  // the objects/ entries (a row whose body hashes to the same value).
+  // the objects/ entries (a row whose body hashes to the same value). Also
+  // reject duplicate hashes in commits.jsonl so a bundle can't silently
+  // bury a second, conflicting body for the same hash, and validate the
+  // row shape so missing required fields surface here instead of as
+  // NOT-NULL violations buried inside the SQLite transaction.
+  const seenCommitHashes = new Set<string>();
   for (const commit of commits) {
-    const recomputed = sha256(commit as unknown as Record<string, unknown>);
+    const c = commit as unknown as Record<string, unknown>;
+    if (typeof c["hash"] !== "string") {
+      throw new Error("Bundle: commits.jsonl row is missing a string hash");
+    }
+    if (typeof c["tree"] !== "string") {
+      throw new Error(
+        `Bundle: commit ${commit.hash} is missing a string tree field`,
+      );
+    }
+    if (typeof c["sessionId"] !== "string") {
+      throw new Error(
+        `Bundle: commit ${commit.hash} is missing a string sessionId`,
+      );
+    }
+    if (typeof c["timestamp"] !== "number" || !Number.isFinite(c["timestamp"])) {
+      throw new Error(
+        `Bundle: commit ${commit.hash} has invalid timestamp`,
+      );
+    }
+    if (typeof c["message"] !== "string") {
+      throw new Error(
+        `Bundle: commit ${commit.hash} is missing a string message`,
+      );
+    }
+    if (commit.parent !== null && typeof commit.parent !== "string") {
+      throw new Error(
+        `Bundle: commit ${commit.hash} has invalid parent field`,
+      );
+    }
+
+    if (seenCommitHashes.has(commit.hash)) {
+      throw new Error(
+        `Bundle: commit ${commit.hash} appears more than once in commits.jsonl`,
+      );
+    }
+    seenCommitHashes.add(commit.hash);
+
+    const recomputed = sha256(c);
     if (recomputed !== commit.hash) {
       throw new Error(
         `Bundle: commit ${commit.hash} failed hash verification (computed ${recomputed})`,
@@ -162,6 +243,8 @@ export function unpack(tar: Uint8Array, opts: UnpackOptions): UnpackResult {
     }
   }
 
+  const sessionIds = new Set(sessions.map((s) => s.id));
+
   for (const commit of commits) {
     if (!objects.has(commit.tree)) {
       throw new Error(
@@ -173,9 +256,32 @@ export function unpack(tar: Uint8Array, opts: UnpackOptions): UnpackResult {
         `Bundle: commit ${commit.hash} references missing parent ${commit.parent}`,
       );
     }
+    // Every commit must belong to a session that ships in this bundle.
+    // Closing this here means the SQLite commits.session_id → sessions.id
+    // FK can never fire during import — unpack stays the sole gate.
+    if (!sessionIds.has(commit.sessionId)) {
+      throw new Error(
+        `Bundle: commit ${commit.hash} references missing session ${commit.sessionId}`,
+      );
+    }
   }
 
+  const VALID_REF_TYPES = new Set(["branch", "tag", "session-head"]);
   for (const ref of refs) {
+    const r = ref as unknown as Record<string, unknown>;
+    if (typeof r["name"] !== "string" || r["name"] === "") {
+      throw new Error("Bundle: refs.json row is missing a non-empty name");
+    }
+    if (typeof r["target"] !== "string") {
+      throw new Error(
+        `Bundle: ref ${r["name"] as string} has a non-string target`,
+      );
+    }
+    if (!VALID_REF_TYPES.has(r["type"] as string)) {
+      throw new Error(
+        `Bundle: ref ${ref.name} has invalid type '${r["type"]}'`,
+      );
+    }
     if (!commitsByHash.has(ref.target)) {
       throw new Error(
         `Bundle: ref ${ref.name} targets missing commit ${ref.target}`,
@@ -183,10 +289,72 @@ export function unpack(tar: Uint8Array, opts: UnpackOptions): UnpackResult {
     }
   }
 
+  const VALID_SESSION_STATUSES = new Set([
+    "active",
+    "completed",
+    "failed",
+    "abandoned",
+  ]);
+  const seenSessionIds = new Set<string>();
   for (const session of sessions) {
+    const s = session as unknown as Record<string, unknown>;
+    if (typeof s["id"] !== "string" || s["id"] === "") {
+      throw new Error("Bundle: sessions.json row is missing a non-empty id");
+    }
+    if (seenSessionIds.has(session.id)) {
+      throw new Error(
+        `Bundle: session ${session.id} appears more than once in sessions.json`,
+      );
+    }
+    seenSessionIds.add(session.id);
+    if (typeof s["name"] !== "string") {
+      throw new Error(
+        `Bundle: session ${session.id} is missing a string name`,
+      );
+    }
+    if (!VALID_SESSION_STATUSES.has(s["status"] as string)) {
+      throw new Error(
+        `Bundle: session ${session.id} has invalid status '${s["status"]}'`,
+      );
+    }
+    if (typeof s["createdAt"] !== "number" || !Number.isFinite(s["createdAt"])) {
+      throw new Error(
+        `Bundle: session ${session.id} has invalid createdAt`,
+      );
+    }
+    if (typeof s["updatedAt"] !== "number" || !Number.isFinite(s["updatedAt"])) {
+      throw new Error(
+        `Bundle: session ${session.id} has invalid updatedAt`,
+      );
+    }
+    if (session.head !== null && typeof session.head !== "string") {
+      throw new Error(
+        `Bundle: session ${session.id} has invalid head field`,
+      );
+    }
     if (session.head !== null && !commitsByHash.has(session.head)) {
       throw new Error(
         `Bundle: session ${session.id} head ${session.head} is missing from commits.jsonl`,
+      );
+    }
+  }
+
+  // manifest.sessionIds must exactly match the set of session ids in
+  // sessions.json. A mismatch indicates a malformed or doctored bundle
+  // (e.g. the manifest names a session whose record was dropped from the
+  // payload, or sessions.json carries extras the manifest never declared).
+  const manifestSessionIds = new Set(manifest.sessionIds);
+  for (const declared of manifestSessionIds) {
+    if (!seenSessionIds.has(declared)) {
+      throw new Error(
+        `Bundle: manifest.sessionIds names ${declared} but sessions.json does not contain it`,
+      );
+    }
+  }
+  for (const present of seenSessionIds) {
+    if (!manifestSessionIds.has(present)) {
+      throw new Error(
+        `Bundle: sessions.json contains ${present} but manifest.sessionIds does not declare it`,
       );
     }
   }

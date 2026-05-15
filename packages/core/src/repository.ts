@@ -1,12 +1,37 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
+
+function performanceNow(): number {
+  return performance.now();
+}
+
 import { sha256 } from "./hash.js";
 import { ObjectStore } from "./object-store.js";
 import { CommitGraph } from "./commit-graph.js";
 import { RefStore } from "./ref-store.js";
 import { SqliteIndex } from "./sqlite-index.js";
 import { loadConfig, resolveAuthor } from "./config.js";
+import { buildReporter, safeRecord, type Reporter } from "./telemetry/index.js";
 import { signMessage, verifyMessage } from "./signing.js";
+import { gc as runGc, type GcOptions, type GcResult } from "./gc.js";
+import { fsck as runFsck, type FsckOptions, type FsckReport } from "./fsck.js";
+import {
+  cherryPick as runCherryPick,
+  type CherryPickInput,
+  type CherryPickResult,
+} from "./cherry-pick.js";
+import {
+  pushSession as runPushSession,
+  fetchRefs as runFetchRefs,
+  pullRef as runPullRef,
+  type PushOptions,
+  type PushResult,
+  type FetchOptions,
+  type FetchResult,
+  type PullOptions,
+  type PullResult,
+} from "./remote/sync.js";
 import type {
   Author,
   Blob,
@@ -70,6 +95,12 @@ export class Repository {
     readonly refs: RefStore,
     readonly index: SqliteIndex,
     readonly graph: CommitGraph,
+    /**
+     * Reporter resolved from `.agentgit/config.json` `telemetry`. `null` when
+     * telemetry is disabled (the default). Public so adapters and the SDK
+     * can share the same reporter when emitting guard.evaluate spans.
+     */
+    readonly reporter: Reporter | null,
   ) {}
 
   /**
@@ -79,11 +110,12 @@ export class Repository {
   static init(agentgitDir: string): Repository {
     mkdirSync(join(agentgitDir, "objects"), { recursive: true });
     mkdirSync(join(agentgitDir, "refs"), { recursive: true });
-    const objects = new ObjectStore(join(agentgitDir, "objects"));
+    const reporter = buildReporter(loadConfig(agentgitDir));
+    const objects = new ObjectStore(join(agentgitDir, "objects"), reporter);
     const refs = new RefStore(agentgitDir);
-    const index = new SqliteIndex(join(agentgitDir, "index.db"));
+    const index = new SqliteIndex(join(agentgitDir, "index.db"), reporter);
     const graph = new CommitGraph(objects);
-    return new Repository(agentgitDir, objects, refs, index, graph);
+    return new Repository(agentgitDir, objects, refs, index, graph, reporter);
   }
 
   /** Open an existing repository without reinitialising it. */
@@ -146,6 +178,7 @@ export class Repository {
     } = input;
 
     const now = Date.now();
+    const tStart = performanceNow();
 
     // Resolve parent
     const parentHash: Hash | null =
@@ -228,6 +261,16 @@ export class Repository {
       this.index.insertTreeEntries(treeHash, treeEntries);
       this.index.insertCommit(fullCommit);
       this.index.updateSessionHead(sessionId, commitHash, now);
+    });
+
+    safeRecord(this.reporter, {
+      name: "commit",
+      durationMs: performanceNow() - tStart,
+      // Privacy: no session id, message, paths, tool inputs/outputs. Counts only.
+      attrs: {
+        entries: stateEntries.length,
+        signed: signature !== null,
+      },
     });
 
     return fullCommit;
@@ -328,6 +371,24 @@ export class Repository {
     return this.refs.getRef(`sessions/${name}`);
   }
 
+  // --------------------------------------------------------------------------
+  // Merge / cherry-pick
+  // --------------------------------------------------------------------------
+
+  /** Most recent common ancestor of two commits, or null if disjoint. */
+  mergeBase(a: Hash, b: Hash): Hash | null {
+    return this.graph.mergeBase(a, b);
+  }
+
+  /**
+   * Replay the commits between `mergeBase(source, target)` and `source` on
+   * top of `target`. See {@link runCherryPick} for the full contract,
+   * including conflict and noop semantics.
+   */
+  cherryPick(input: CherryPickInput): CherryPickResult {
+    return runCherryPick(this, input);
+  }
+
   /** Compute the SHA-256 hash for an arbitrary object (exposed for testing). */
   static hashObject(obj: Record<string, unknown>): Hash {
     return sha256(obj);
@@ -372,5 +433,50 @@ export class Repository {
     }
     const ok = verifyMessage(hash, commit.signature, commit.publicKey);
     return { status: ok ? "valid" : "invalid", commit };
+  }
+
+  // --------------------------------------------------------------------------
+  // Garbage collection and integrity checking
+  // --------------------------------------------------------------------------
+
+  /**
+   * Reclaim unreachable objects via soft-delete to `.agentgit/objects.gc/`
+   * and hard-delete files in that quarantine older than --prune-older-than.
+   * See {@link runGc} for the full contract.
+   */
+  gc(options?: GcOptions): GcResult {
+    return runGc(this, options);
+  }
+
+  /**
+   * Verify object-store and index integrity, optionally quarantining corrupt
+   * files via `--repair`. See {@link runFsck} for the full contract.
+   *
+   * Note: fsck opens its OWN raw DB connection that does not run migrations,
+   * so it observes the schema as it actually is on disk. The `Repository`
+   * receiver provides the agentgitDir; the connection it already holds is
+   * irrelevant to the check.
+   */
+  fsck(options?: FsckOptions): FsckReport {
+    return runFsck(this.agentgitDir, options);
+  }
+
+  // --------------------------------------------------------------------------
+  // Remote sync (spec 005)
+  // --------------------------------------------------------------------------
+
+  /** Push a session to a remote. See {@link runPushSession}. */
+  push(opts: Omit<PushOptions, "repo"> & { repo?: never }): Promise<PushResult> {
+    return runPushSession(this, opts);
+  }
+
+  /** Fetch refs from a remote. See {@link runFetchRefs}. */
+  fetch(opts: Omit<FetchOptions, "repo"> & { repo?: never }): Promise<FetchResult> {
+    return runFetchRefs(this, opts);
+  }
+
+  /** Pull (fetch + fast-forward) a single ref. See {@link runPullRef}. */
+  pull(opts: Omit<PullOptions, "repo"> & { repo?: never }): Promise<PullResult> {
+    return runPullRef(this, opts);
   }
 }

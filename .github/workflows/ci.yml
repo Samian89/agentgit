@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Pre-build packages that emit dist/ (required for cross-package type
+      # resolution in dependents like sdk/cli/remote-server). Use explicit
+      # --filter lists so the root "pnpm -r typecheck" (and any recursive
+      # build commands) never invoke @agentgit/ui's "build:tauri" script on
+      # this runner, which lacks Rust + webkit2gtk prerequisites. "build" on
+      # ui now safely runs the Vite web layer only. Tauri builds are isolated
+      # to release.yml's tauri matrix which installs the needed toolchains per
+      # platform.
+      - name: Build TypeScript packages (safe filters, excludes Tauri UI)
+        run: |
+          pnpm --filter @agentgit/core build
+          pnpm --filter @agentgit/sdk build
+          pnpm --filter @agentgit/cli build
+          pnpm --filter @agentgit/remote-server build
+          pnpm --filter @agentgit/web-viewer build
+      - run: pnpm typecheck
+
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Build core so cross-package vitest imports (@agentgit/sdk, @agentgit/cli
+      # depend on @agentgit/core's compiled dist) resolve. UI/web-viewer/Tauri
+      # are not pre-built here — they require Rust + webkit2gtk.
+      - run: |
+          pnpm --filter @agentgit/core build
+          pnpm --filter @agentgit/sdk build
+      - run: pnpm test
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Integration tests only need the CLI-facing packages. The Tauri UI
+      # build requires Rust + webkit2gtk and is exercised in release.yml's
+      # tauri matrix, not here.
+      - run: |
+          pnpm --filter @agentgit/core build
+          pnpm --filter @agentgit/sdk build
+          pnpm --filter @agentgit/cli build
+      - run: pnpm test:integration
+
+  python:
+    name: Python ${{ matrix.python }} adapters
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install adapters
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e adapters/python[dev]
+          pip install -e adapters/langchain[dev]
+      - name: Run pytest
+        run: pytest adapters/python adapters/langchain
+
+  api-extractor:
+    name: API surface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build packages targeted by API Extractor
+        run: |
+          pnpm --filter @agentgit/core build
+          pnpm --filter @agentgit/sdk build
+      - run: pnpm api:check
+
+  bench:
+    name: Benchmarks (budget enforced)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agentgit/core build
+      - run: pnpm bench --check

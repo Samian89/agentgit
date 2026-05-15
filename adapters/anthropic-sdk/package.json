@@ -1,0 +1,12 @@
+{
+  "name": "@agentgit/adapter-anthropic-sdk",
+  "version": "0.1.0",
+  "description": "AgentGit adapter for the Anthropic SDK (tool_use blocks)",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "test": "node --test smoke.test.mjs"
+  }
+}

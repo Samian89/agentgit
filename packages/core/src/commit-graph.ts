@@ -41,4 +41,34 @@ export class CommitGraph {
     const obj = this.store.read(hash) as CommitObject;
     return obj.parent ?? null;
   }
+
+  /**
+   * Lowest common ancestor of two commits, walking single-parent links.
+   *
+   * Returns the hash of the most recent commit reachable from both `a` and
+   * `b` via parent traversal, or null if the two histories never converge
+   * (disjoint roots) or either side is missing.
+   *
+   * `a === b` is a degenerate case that returns `a` itself.
+   *
+   * Implementation: collect every ancestor of `a` (including `a`) into a
+   * set, then walk `b`'s parent chain and return the first hash present in
+   * that set. With singly-linked commits, the first hit is necessarily the
+   * most recent shared ancestor.
+   */
+  mergeBase(a: Hash, b: Hash): Hash | null {
+    if (a === b) return this.store.has(a) ? a : null;
+    const ancestorsOfA = new Set<Hash>(this.ancestors(a));
+    if (ancestorsOfA.size === 0) return null;
+    let current: Hash | null = b;
+    const visited = new Set<Hash>();
+    while (current !== null && !visited.has(current)) {
+      if (ancestorsOfA.has(current)) return current;
+      if (!this.store.has(current)) return null;
+      visited.add(current);
+      const obj = this.store.read(current) as CommitObject;
+      current = obj.parent ?? null;
+    }
+    return null;
+  }
 }

@@ -23,8 +23,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build all packages
-        run: pnpm build
+      # The Tauri UI ("build:tauri") is handled by the `tauri` matrix below — it
+      # needs Rust + webkit2gtk that this Linux runner does not install. The
+      # root "build" script is now safe (ui "build" runs Vite web layer only).
+      # Build only the npm-publishable packages here so the gate runs cleanly.
+      - name: Build npm-publishable packages
+        run: |
+          pnpm --filter @agentgit/core build
+          pnpm --filter @agentgit/sdk build
+          pnpm --filter @agentgit/cli build
 
       - name: Run integration tests
         run: pnpm test:integration
@@ -51,13 +58,63 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build all packages
-        run: pnpm build
+      # Tauri UI (`@agentgit/ui`, via "build:tauri") and the web viewer are
+      # `private: true` and are released via the tauri matrix below, not npm.
+      # Build only the packages that go to npm.
+      - name: Build npm-publishable packages
+        run: |
+          pnpm --filter @agentgit/core build
+          pnpm --filter @agentgit/sdk build
+          pnpm --filter @agentgit/cli build
 
       - name: Publish packages to npm
-        run: pnpm -r publish --no-git-checks --access public
+        run: |
+          pnpm --filter @agentgit/core publish --no-git-checks --access public
+          pnpm --filter @agentgit/sdk publish --no-git-checks --access public
+          pnpm --filter @agentgit/cli publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  publish-pypi-adapter:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # OIDC token for pypa/gh-action-pypi-publish trusted publishing.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build agentgit-adapter sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build adapters/python --outdir dist-adapter
+      - name: Publish agentgit-adapter to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-adapter
+
+  publish-pypi-langchain:
+    needs: publish-pypi-adapter
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build agentgit-langchain sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build adapters/langchain --outdir dist-langchain
+      - name: Publish agentgit-langchain to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-langchain
 
   tauri:
     needs: build-and-test

@@ -1,0 +1,142 @@
+/**
+ * Shared theme used by both the Tauri desktop UI and the web viewer.
+ * Tools embedding these components should import this stylesheet once at the
+ * top level — the CSS variables below back every component's inline styles.
+ */
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --border: #0f3460;
+  --accent: #e94560;
+  --text: #eaeaea;
+  --text-muted: #8888aa;
+  --green: #4caf50;
+  --red: #f44336;
+  --selected: #e9456033;
+  font-family: "Consolas", "Monaco", monospace;
+  font-size: 14px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+#root { height: 100vh; display: flex; flex-direction: column; }
+
+button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { border-color: var(--accent); }
+
+input[type="text"] {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+input[type="text"]:focus { border-color: var(--accent); }
+
+select {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.toolbar label { color: var(--text-muted); font-size: 12px; }
+.toolbar input[type="text"] { flex: 1; max-width: 400px; }
+
+.main-layout { display: flex; flex: 1; overflow: hidden; }
+
+.left-panel {
+  width: 280px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.panel-header {
+  padding: 8px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.bottom-panels {
+  display: flex;
+  border-top: 1px solid var(--border);
+  height: 260px;
+  flex-shrink: 0;
+}
+
+.diff-panel, .blame-panel {
+  flex: 1;
+  overflow: auto;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.blame-panel { border-right: none; }
+
+.error-banner {
+  padding: 8px 12px;
+  background: #5c1010;
+  color: #ffaaaa;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.empty-state {
+  padding: 24px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.drop-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--border);
+  margin: 24px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  flex-direction: column;
+  gap: 8px;
+}
+.drop-zone.active { border-color: var(--accent); color: var(--accent); }

@@ -182,7 +182,9 @@ The repository ships a complete working example at `examples/todo-agent/`:
 
 ```bash
 pnpm install
-pnpm build
+# Build the workspace packages required by the example (filtered to avoid
+# @agentgit/ui (its "build:tauri" needs Rust + webkit2gtk; root "build" is safe).
+pnpm --filter @agentgit/core --filter @agentgit/sdk --filter @agentgit/cli build
 cd examples/todo-agent
 node run-agent.js
 ```

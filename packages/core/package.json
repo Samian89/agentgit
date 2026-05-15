@@ -16,12 +16,15 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "api:check": "api-extractor run",
+    "api:update": "api-extractor run --local"
   },
   "dependencies": {
     "better-sqlite3": "^9.4.3"
   },
   "devDependencies": {
+    "@microsoft/api-extractor": "^7.58.7",
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "*",
     "rimraf": "*",

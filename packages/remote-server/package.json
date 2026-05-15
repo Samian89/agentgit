@@ -1,0 +1,44 @@
+{
+  "name": "@agentgit/remote-server",
+  "version": "0.1.0",
+  "description": "Reference Fastify implementation of the AgentGit remote protocol",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./server": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    }
+  },
+  "bin": {
+    "agentgit-remote-server": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@agentgit/core": "workspace:*",
+    "better-sqlite3": "^9.4.3",
+    "fastify": "^4.28.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "*",
+    "rimraf": "*",
+    "typescript": "*",
+    "vitest": "*"
+  }
+}

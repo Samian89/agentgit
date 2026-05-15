@@ -8,3 +8,5 @@ __pycache__/
 *.log
 .DS_Store
 .agentgit/
+# API Extractor scratch
+packages/*/temp/
