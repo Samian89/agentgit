@@ -136,6 +136,8 @@ deserialise the file.
                           | timestamp    INTEGER    │     |     (not a SQLite row)
                           | message      TEXT       │     |
                           | tool_call    TEXT (JSON?)│    |
+                          | llm_call     TEXT (JSON?)│    |   <─── added by
+                          |                          │    |        migration 003
                           | metadata     TEXT (JSON)│    |
                           | author_name  TEXT?      │    |   <─── added by
                           | author_email TEXT?      │    |        migration 002
@@ -146,6 +148,7 @@ deserialise the file.
                               └───────────────────────┘
                               parent:  ON DELETE RESTRICT  (self-reference)
 
+**Note:** Both `tool_call` and `llm_call` (added in migration 003) are embedded JSON columns, not separate tables. The same pattern is used for `metadata`. `LlmCall` and `ToolCall` objects are serialised into these TEXT columns and round-tripped through the content-addressed object store and the SQLite index. The current `TARGET_VERSION` is 3.
 
    +-------------------------------+                  +-------------------------------+
    | tree_entries                  |                  | blobs                         |

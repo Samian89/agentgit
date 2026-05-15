@@ -58,6 +58,8 @@ List commits in reverse chronological order.
 | Flag | Description |
 |------|-------------|
 | `-s, --session <id>` | Filter output to a single session by ID or name |
+| `--llm-only` | Show only LLM commits (hides commits without an `llmCall`) |
+| `--tool-only` | Show only tool commits (hides commits without a `toolCall`) |
 
 **Output format** (ANSI-coloured in a terminal)
 
@@ -65,6 +67,7 @@ List commits in reverse chronological order.
 <hash-short>  <ISO-timestamp>  [<session-name>]
     <commit-message>
     tool: <tool-name> (<status>)     ← only for tool-call commits
+    llm: <model> (<N> tok ~$X.XXXX)  ← only for LLM commits (may appear with tool: on same commit)
 ```
 
 **Examples**
@@ -76,9 +79,14 @@ agentgit log
 # Show commits for a named session
 agentgit log --session my-session
 
-# Show commits for a session by UUID
-agentgit log --session f47ac10b-58cc-4372-a567-0e02b2c3d479
+# Show only LLM reasoning steps (useful for cost / token audits)
+agentgit log --session research --llm-only
+
+# Show only the tool invocations (hides pure LLM commits)
+agentgit log --tool-only
 ```
+
+A single commit can contain both a `toolCall` and an `llmCall` (e.g. an agent that reasons then calls a tool in one step); both lines appear under the same hash.
 
 ---
 
@@ -184,6 +192,12 @@ Print all recorded tool calls for a session in chronological order.
 |----------|----------|-------------|
 | `session` | yes | Session ID (UUID) or session name |
 
+**Options**
+
+| Flag | Description |
+|------|-------------|
+| `--full` | Do not truncate prompt/response text (default truncates at 500 chars) |
+
 **Output**
 
 ```
@@ -201,6 +215,24 @@ Step 2/9: Tool: addTodo
   Status: success
 ...
 ```
+
+When the commit contains an `llmCall`, `replay` prints an expanded block:
+
+```
+Step 3/5: LLM: claude-opus-4-7 (anthropic)
+    Tokens: 18 prompt / 24 completion / 42 total
+    Cost:   ~$0.0012
+    Duration: 1340ms
+    Prompt:
+      Explain the redaction feature in two sentences.
+    Response:
+      Redaction uses regex patterns from config.json to replace sensitive
+      substrings with [REDACTED] before the commit is hashed...
+    Status: success
+```
+
+- `--full` disables the 500-char truncation on Prompt and Response (useful for debugging long contexts).
+- Both tool and LLM information appear when a commit carries both payloads.
 
 ---
 

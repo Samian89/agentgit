@@ -10,14 +10,16 @@
 
 ## 60-second pitch
 
-AI agents change files, call tools, and mutate state, but most runs disappear
-into console logs. AgentGit gives each run a Git-like audit trail under
+AI agents change files, call tools, and invoke LLMs for reasoning. AgentGit
+captures those LLM calls (prompt messages, model response, token usage, and
+estimated cost) as first-class `LlmCall` commits alongside tool calls. Most runs
+disappear into console logs; AgentGit gives each run a Git-like audit trail under
 `.agentgit/`: immutable objects, parent-linked commits, SQLite-backed queries,
 and replay/export commands you can use without a server.
 
 Use it when you need to answer: what prompt started this run, which tool calls
-happened, what changed between steps, and can this session be replayed or
-archived later?
+and LLM reasoning steps happened, what changed between steps, and can this
+session be replayed or archived later?
 
 ## Install
 
@@ -39,6 +41,9 @@ pnpm --filter @agentgit/cli exec agentgit init
 import { wrapAgentJS } from "@agentgit/sdk";
 
 class Agent {
+  // `llm` property is auto-detected by wrapAgentJS({ llm: true }) for Anthropic / Vercel AI clients
+  llm: any = null;
+
   async run(prompt: string) {
     await this.search({ query: prompt });
     return { ok: true };
@@ -70,6 +75,7 @@ agentgit export demo > demo.agentgit.json
 | SQLite mirror index with WAL, FK checks, and migrations | `agentgit gc` and `agentgit fsck` |
 | TypeScript SDK with `wrapAgentJS` and manual sessions | Portable bundle format and hosted web viewer |
 | Python adapter and LangChain callback handler | Expanded adapter coverage |
+| `LlmCall` first-class commit type (model/tokens/cost) + auto-capture for Anthropic SDK, Vercel AI SDK, Python LLM SDKs | |
 | Default `ConfirmationGuard` and `SnapshotGuard` | Performance API, telemetry, and CI hardening |
 | Tauri read UI for timeline, diffs, and blame | UI write actions |
 

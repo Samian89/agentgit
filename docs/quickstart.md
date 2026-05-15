@@ -215,3 +215,45 @@ Next steps:
 ```
 
 The agent processes 3 prompts and produces 9 commits (1 prompt + 2 tool calls per prompt).
+
+---
+
+## Capturing LLM calls
+
+When your agent exposes an `llm` property (Anthropic client, Vercel AI SDK module, or any Python LLM SDK via the adapter), `wrapAgentJS` (and the Python `wrap_agent` / `@agentgit_record_llm`) automatically captures every `messages.create` / `generateText` / chat completion as a first-class `LlmCall` commit.
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+import { wrapAgentJS } from "@agentgit/sdk";
+
+class Agent {
+  llm = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+  async run(prompt: string) {
+    const resp = await this.llm.messages.create({
+      model: "claude-opus-4-7",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }],
+    });
+    return resp.content[0].text;
+  }
+}
+
+const wrapped = wrapAgentJS(new Agent(), {
+  repoDir: ".agentgit",
+  sessionName: "llm-demo",
+});
+await wrapped.run("Explain LlmCall in one sentence");
+wrapped.agentgit.end();
+```
+
+After running, `agentgit log` shows the LLM reasoning step:
+
+```
+a1b2c3d4... 2024-01-15 10:05:00 UTC [llm-demo]
+    llm: claude-opus-4-7 (18 tok ~$0.0012)
+```
+
+Use `agentgit replay llm-demo --full` to see the full prompt messages, response text, token breakdown, duration, and cost estimate.
+
+The same capture works in Python via `AgentWrapper.record_llm_call(...)`, the `@agentgit_record_llm` decorator, LangChain `on_llm_end`, and the OpenAI Agents / AutoGen / CrewAI adapters.

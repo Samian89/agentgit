@@ -15,7 +15,7 @@ npm install @agentgit/sdk
 
 ## `wrapAgentJS(agent, options?)`
 
-Wraps any agent object so that every tool call is intercepted, guarded, and recorded as a content-addressed commit.
+Wraps any agent object so that every tool call is intercepted, guarded, and recorded as a content-addressed commit. When `agent.llm` (or an explicit client) is present and `WrapOptions.llm` is not `false`, LLM calls are also auto-captured as `LlmCall` commits via the Anthropic / Vercel AI SDK adapters.
 
 ### Signature
 
@@ -53,7 +53,18 @@ interface WrapOptions {
   sessionMetadata?: Record<string, unknown>;
 
   /** Guards to run before each intercepted tool call. See Safety Guards. */
-  guards?: Guard[];
+  guards?: Guard[] | false;
+
+  /**
+   * LLM auto-capture options (see LlmCall below).
+   *
+   * - `undefined` (default): auto-detect `agent.llm` if present and shaped like
+   *   an Anthropic client (`messages.create`) or Vercel AI module (`generateText`/`streamText`).
+   * - `false`: disable auto-capture even if `agent.llm` exists.
+   * - `{ provider: "anthropic" | "vercel-ai-sdk", client? }`: force a specific adapter
+   *   and (optionally) wrap the given client instead of (or in addition to) `agent.llm`.
+   */
+  llm?: LlmAutoCaptureOptions;
 }
 ```
 
@@ -253,14 +264,80 @@ session.end();
 
 ---
 
+## `LlmCall`
+
+`LlmCall` is the first-class payload for LLM reasoning steps (prompt → response, usage, cost). It is recorded by `Repository.recordLlmCall` (TS) or `AgentWrapper.record_llm_call` (Python) and appears as `commit.llmCall` (camelCase in JS objects) / `llm_call` (snake in SQLite rows and wire types).
+
+### Shape (from `@agentgit/core`)
+
+```ts
+interface LlmCall {
+  id: string;                    // UUID v4
+  provider: string;              // "anthropic", "vercel-ai-sdk", "openai", "langchain", ...
+  model: string;                 // e.g. "claude-opus-4-7"
+  messages: LlmMessage[];        // normalized prompt history
+  response: string;              // joined text response
+  usage: LlmUsage | null;        // token counts or null
+  costEstimateUsd: number | null; // USD estimate or null
+  startedAt: number;             // Unix ms
+  completedAt: number | null;
+  durationMs: number | null;
+  status: "pending" | "success" | "error";
+  error: string | null;
+}
+
+interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+interface LlmMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+}
+```
+
+### Auto-capture via `wrapAgentJS({ llm })`
+
+When the `llm` option is truthy (or left undefined and `agent.llm` is detected), the wrapper installs a thin bridge that calls `recorder.recordLlm(llmCall)` after every model invocation. The bridge is provider-specific:
+
+- Anthropic SDK → `wrapAnthropic`
+- Vercel AI SDK → `wrapAI`
+
+See [Adapters](./adapters) for per-SDK details and the pricing helpers that populate `costEstimateUsd`.
+
+### Manual recording
+
+```ts
+import { randomUUID } from "node:crypto";
+const llmCall: LlmCall = {
+  id: randomUUID(),
+  provider: "anthropic",
+  model: "claude-sonnet-4-6",
+  messages: [{ role: "user", content: "Hello" }],
+  response: "Hi there!",
+  usage: { promptTokens: 3, completionTokens: 4, totalTokens: 7 },
+  costEstimateUsd: 0.00012,
+  startedAt: Date.now() - 1200,
+  completedAt: Date.now(),
+  durationMs: 1200,
+  status: "success",
+  error: null,
+};
+repo.recordLlmCall({ sessionId, ...llmCall }); // or via AgentGitSession
+```
+
+---
+
 ## Types
 
 All types are re-exported from `@agentgit/sdk`:
 
 ```ts
-export type { AgentLike, WrapOptions, WrappedAgent } from "@agentgit/sdk";
-export { wrapAgentJS } from "@agentgit/sdk";
+export type { AgentLike, WrapOptions, WrappedAgent, LlmAutoCaptureOptions } from "@agentgit/sdk";
+export { wrapAgentJS, createLlmRecorderBridge } from "@agentgit/sdk";
 export { AgentGitSession } from "@agentgit/sdk";
 ```
 
-`Guard`, `GuardResult`, `ToolCall`, `Repository`, and `Session` are imported from `@agentgit/core`.
+`Guard`, `GuardResult`, `ToolCall`, `LlmCall`, `LlmUsage`, `LlmMessage`, `Repository`, and `Session` are imported from `@agentgit/core`.
