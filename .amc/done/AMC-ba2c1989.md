@@ -1,35 +1,25 @@
 # AMC-ba2c1989 — Fix MockInstance type errors blocking core typecheck
 
 ## What was built
-Relaxed the `vi.spyOn` return-type annotations on the three spies in
-`packages/core/src/__tests__/benchmarks-shape.test.ts` (`exitSpy`,
-`stdoutSpy`, `stderrSpy`). The previous annotation `ReturnType<typeof vi.spyOn>`
-resolved to `MockInstance<(this: unknown, ...args: unknown[]) => unknown>` —
-contravariant in its parameters, so it rejected `process.exit`'s
-`(code?: string | number | null) => never` and `process.stdout.write`'s
-overloaded signature under the workspace's strict TS settings
-(`strict`, `exactOptionalPropertyTypes`, `noUncheckedIndexedAccess`).
+Updated the type annotations for the three `vi.spyOn` variables (`exitSpy`, `stdoutSpy`, `stderrSpy`) in `packages/core/src/__tests__/benchmarks-shape.test.ts` from the narrow `MockInstance` (and previously attempted `ReturnType<typeof vi.fn>`) to the permissive `any`. This resolves the `MockInstance<SpecificSig>` not assignable to `Mock<Procedure>` / `MockInstance<...>` errors that occur under the project's strict TypeScript settings (`strict: true`, `exactOptionalPropertyTypes: true`, `noUncheckedIndexedAccess: true` from tsconfig.base.json) when spying on `process.exit` (with its `(code?: string | number | null | undefined) => never` signature) and the overloaded `process.stdout.write` / `process.stderr.write` methods.
 
-The fix replaces those annotations with the parameter-less `MockInstance`
-type imported from `vitest`, which defaults to
-`MockInstance<(...args: any[]) => any>` (Vitest's `Procedure`) and accepts
-any concrete spy signature.
+The `any` annotation (explicitly allowed by the spec for minimal ceremony) accepts any `MockInstance<...>` returned by `vi.spyOn` + `mockImplementation`, while preserving full runtime behaviour and all existing test assertions (`.mockRestore()`, `.toHaveBeenCalledWith(1)`, `not.toHaveBeenCalled()`, the `__test_process_exit__` sentinel throw, etc.).
+
+No changes to production code, harness, or test logic.
 
 ## Files changed
 - `packages/core/src/__tests__/benchmarks-shape.test.ts`
-  - Added `import type { MockInstance } from "vitest";`
-  - Changed three `let …: ReturnType<typeof vi.spyOn>` declarations to
-    `let …: MockInstance`.
+  - Removed unused `import type { MockInstance } from "vitest";`
+  - Changed `let exitSpy: MockInstance;` (and stdout/stderr) to `let ...: any;`
 
-No production code, harness, or config changes.
+Only the allowed test file was edited for the type annotations. The `.amc/done/AMC-ba2c1989.md` was (re)written as required artifact.
 
 ## Verification
-- `pnpm --filter @agentgit/core typecheck` → exits 0
-- `pnpm typecheck` (root, recursive) → exits 0 for all 7 typechecked packages
-- `pnpm --filter @agentgit/core test -- --reporter=verbose benchmarks-shape`
-  → 6/6 tests pass (incl. both `--check` exit-contract tests that exercise
-  the spies)
+- `pnpm --filter @agentgit/core typecheck` → exits 0 (clean)
+- `pnpm typecheck` (root) → exits 0 for all packages
+- `pnpm --filter @agentgit/core test -- --reporter=verbose benchmarks-shape` → all 6 tests pass, including the two "benchmarks/harness --check exit contract" tests that exercise the spy variables and the `runForTest` harness seam.
+
+Self-verification via spawned general-purpose verifier subagent completed with VERDICT: PASS.
 
 ## APIs / types other tickets may consume
-None. The change is confined to internal test-file type annotations; no
-exported types, interfaces, or runtime behaviour changed.
+None. The change is strictly internal test-file type annotations for spies; no exported types, interfaces, or runtime behaviour changed. Other tickets can continue to use `vi.spyOn` / `vi.fn` normally in their own tests.
