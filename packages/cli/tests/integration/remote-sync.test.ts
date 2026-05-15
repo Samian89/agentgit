@@ -8,7 +8,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { Repository } from "@agentgit/core";
 import { buildServer, getStorage } from "../../../remote-server/src/server.js";
@@ -25,26 +25,21 @@ let serverDir: string;
 let app: FastifyInstance;
 let serverUrl: string;
 let originalStdoutWrite: typeof process.stdout.write;
-let originalStderrWrite: typeof process.stderr.write;
 let stderrCaptured: string[];
 
 function silenceStdio(): void {
   originalStdoutWrite = process.stdout.write.bind(process.stdout);
-  originalStderrWrite = process.stderr.write.bind(process.stderr);
   stderrCaptured = [];
   (process.stdout.write as unknown as (s: string) => boolean) = (() =>
     true) as typeof process.stdout.write;
-  (process.stderr.write as unknown as (s: string) => boolean) = ((
-    s: string,
-  ) => {
-    stderrCaptured.push(s);
-    return true;
-  }) as typeof process.stderr.write;
+  vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
+    stderrCaptured.push(args.map((a) => String(a)).join(" "));
+  });
 }
 
 function restoreStdio(): void {
   (process.stdout.write as unknown) = originalStdoutWrite;
-  (process.stderr.write as unknown) = originalStderrWrite;
+  vi.restoreAllMocks();
 }
 
 function makeRepoDir(suffix: string): { repoDir: string; agentgitDir: string } {
