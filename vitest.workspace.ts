@@ -22,4 +22,11 @@ export default defineWorkspace([
       environment: "node",
     },
   },
+  {
+    test: {
+      name: "remote-server",
+      root: "./packages/remote-server",
+      environment: "node",
+    },
+  },
 ]);
