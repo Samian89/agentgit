@@ -4,7 +4,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StepCard } from "@agentgit/ui-components";
 import type { CommitRow } from "@agentgit/ui-components";
-import type { BundleContents, Commit, LlmCall, Session } from "./bundle/types.js";
+import type { Commit, LlmCall, Session } from "./bundle/types.js";
+import type { BundleContents } from "./bundle/unpack.js";
 import { InMemoryIndex } from "./in-memory-index.js";
 
 const SAMPLE_LLM_CALL: LlmCall = {
@@ -95,8 +96,8 @@ describe("StepCard LLM rendering (web-viewer)", () => {
       metadata: "{}",
     };
     render(<StepCard commit={commit} selected={false} onSelect={vi.fn()} />);
-    expect(screen.getByText(/llm: claude-3-5-sonnet · 17 tok/)).toBeInTheDocument();
-    expect(screen.getByText(/~\$0.0004/)).toBeInTheDocument();
+    expect(screen.getByText(/llm: claude-3-5-sonnet · 17 tok/)).toBeTruthy();
+    expect(screen.getByText(/~\$0.0004/)).toBeTruthy();
   });
 
   it("expands to reveal prompt and response text", async () => {
@@ -112,13 +113,13 @@ describe("StepCard LLM rendering (web-viewer)", () => {
       metadata: "{}",
     };
     render(<StepCard commit={commit} selected={false} onSelect={vi.fn()} />);
-    expect(screen.queryByTestId("step-card-detail")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("step-card-detail")).toBeNull();
     await userEvent.click(screen.getByTestId("step-card"));
-    expect(screen.getByTestId("step-card-detail")).toBeInTheDocument();
-    expect(screen.getByText("Prompt (last user)")).toBeInTheDocument();
-    expect(screen.getByText("What is 2+2?")).toBeInTheDocument();
-    expect(screen.getByText("Response")).toBeInTheDocument();
-    expect(screen.getByText("The answer is 4.")).toBeInTheDocument();
+    expect(screen.getByTestId("step-card-detail")).toBeTruthy();
+    expect(screen.getByText("Prompt (last user)")).toBeTruthy();
+    expect(screen.getByText("What is 2+2?")).toBeTruthy();
+    expect(screen.getByText("Response")).toBeTruthy();
+    expect(screen.getByText("The answer is 4.")).toBeTruthy();
   });
 
   it("renders both tool and llm summaries when commit has both", () => {
@@ -134,8 +135,8 @@ describe("StepCard LLM rendering (web-viewer)", () => {
       metadata: "{}",
     };
     render(<StepCard commit={commit} selected={false} onSelect={vi.fn()} />);
-    expect(screen.getByText("search")).toBeInTheDocument(); // tool
-    expect(screen.getByText(/llm: claude-3-5-sonnet/)).toBeInTheDocument(); // llm
+    expect(screen.getByText("search")).toBeTruthy(); // tool
+    expect(screen.getByText(/llm: claude-3-5-sonnet/)).toBeTruthy(); // llm
   });
 });
 
@@ -145,8 +146,9 @@ describe("InMemoryIndex LLM round-trip", () => {
     const index = new InMemoryIndex(bundle);
     const rows = index.getCommits("sess-llm");
     expect(rows).toHaveLength(1);
-    expect(rows[0].llm_call).not.toBeNull();
-    const parsed = JSON.parse(rows[0].llm_call!);
+    const row0 = rows[0]!;
+    expect(row0.llm_call).not.toBe(null);
+    const parsed = JSON.parse(row0.llm_call!);
     expect(parsed.model).toBe("claude-3-5-sonnet");
     expect(parsed.usage.totalTokens).toBe(17);
     expect(parsed.costEstimateUsd).toBe(0.00042);

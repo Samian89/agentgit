@@ -58,6 +58,7 @@ def _row_to_ts_commit(row: sqlite3.Row) -> dict[str, Any]:
         "timestamp": row["timestamp"],
         "message": row["message"],
         "toolCall": json.loads(row["tool_call"]) if row["tool_call"] else None,
+        "llmCall": json.loads(row["llm_call"]) if row["llm_call"] else None,
         "metadata": json.loads(row["metadata"]),
         "author": author,
         "signature": row["signature"],

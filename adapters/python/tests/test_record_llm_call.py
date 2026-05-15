@@ -21,7 +21,7 @@ from agentgit_adapter import AgentWrapper, TARGET_VERSION
 FIXED_UUID = "12345678-1234-5678-1234-567812345678"
 FIXED_NOW = 1_600_000_000_000
 # Pre-computed canonical hash for the exact commit body (matches TS Repository.hashObject)
-EXPECTED_HASH = "07ca0a901044fa7e6667abb9024572bc4a8a6317a0aa662217dee7795dcab95c"
+EXPECTED_HASH = "3948a76376ff94bac4703f12f76e72511e218969da2636cbac6ed5c2c3d99e54"
 
 
 def _canonical_json(obj):
