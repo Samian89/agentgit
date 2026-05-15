@@ -1,17 +1,19 @@
-# AMC-7cced348 ticket test command output
+# AMC-7cced348 ticket test command output (cycle 4 rerun)
 # Repo: /app/data/repos/samian89-agentgit
-# HEAD: e4bddf0887c7fe91c299f64f0383529711c210f8
-# Date: 2026-05-15T19:45:02Z
+# HEAD: eac6062d4b30c62deec451702c594f3f5fb59126
+# Date: 2026-05-15T19:47:17Z
 
-## Command
+## Command (verbatim from ticket)
 pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core api:update && pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check && pnpm api:check
 
-## Output
+## Step 1/5: pnpm --filter @agentgit/core build
 
 > @agentgit/core@0.1.0 build /app/data/repos/samian89-agentgit/packages/core
 > tsc
 
+step1_exit=0
 
+## Step 2/5: pnpm --filter @agentgit/core api:update
 
 > @agentgit/core@0.1.0 api:update /app/data/repos/samian89-agentgit/packages/core
 > api-extractor run --local
@@ -23,7 +25,9 @@ Using configuration from ./api-extractor.json
 Analysis will use the bundled TypeScript version 5.9.3
 
 API Extractor completed successfully
+step2_exit=0
 
+## Step 3/5: pnpm --filter @agentgit/core api:check
 
 > @agentgit/core@0.1.0 api:check /app/data/repos/samian89-agentgit/packages/core
 > api-extractor run
@@ -35,7 +39,9 @@ Using configuration from ./api-extractor.json
 Analysis will use the bundled TypeScript version 5.9.3
 
 API Extractor completed successfully
+step3_exit=0
 
+## Step 4/5: pnpm --filter @agentgit/sdk api:check
 
 > @agentgit/sdk@0.1.0 api:check /app/data/repos/samian89-agentgit/packages/sdk
 > api-extractor run
@@ -47,7 +53,9 @@ Using configuration from ./api-extractor.json
 Analysis will use the bundled TypeScript version 5.9.3
 
 API Extractor completed successfully
+step4_exit=0
 
+## Step 5/5: pnpm api:check
 
 > agentgit@0.1.0 api:check /app/data/repos/samian89-agentgit
 > pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check
@@ -74,8 +82,9 @@ Using configuration from ./api-extractor.json
 Analysis will use the bundled TypeScript version 5.9.3
 
 API Extractor completed successfully
+step5_exit=0
 
-## Exit code
+## Combined chained command exit code
 FULL_TEST_EXIT=0
 
 TESTER_VERDICT: pass

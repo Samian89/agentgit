@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import sys
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
@@ -9,9 +10,17 @@ ADAPTER_ROOT = Path(__file__).resolve().parents[1]
 if str(ADAPTER_ROOT) not in sys.path:
     sys.path.insert(0, str(ADAPTER_ROOT))
 
-# Register the pytest plugin module by path so the `agentgit_session` fixture
-# is available without requiring `pip install agentgit-adapter` first.
-pytest_plugins = ["agentgit_adapter.pytest_plugin"]
+# When agentgit-adapter is pip-installed, its `pytest11` entry-point already
+# registers `agentgit_adapter.pytest_plugin` (under the name `agentgit_session`),
+# so declaring it again here would make pluggy raise a duplicate-registration
+# error. Fall back to declaring `pytest_plugins` only when the entry-point is
+# not present — that keeps the `agentgit_session` fixture available for users
+# running pytest directly from source without installing the package.
+if not any(
+    ep.value == "agentgit_adapter.pytest_plugin"
+    for ep in entry_points(group="pytest11")
+):
+    pytest_plugins = ["agentgit_adapter.pytest_plugin"]
 
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS sessions (

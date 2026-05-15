@@ -96,8 +96,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e adapters/python[dev]
           pip install -e adapters/langchain[dev]
+          pip install -e adapters/openai-agents[dev]
+          pip install -e adapters/autogen[dev]
+          pip install -e adapters/crewai[dev]
       - name: Run pytest
-        run: pytest adapters/python adapters/langchain
+        run: pytest adapters/python adapters/langchain adapters/openai-agents adapters/autogen adapters/crewai
 
   js-adapters:
     name: JS SDK adapters (smoke)
