@@ -8,3 +8,4 @@ agentgit_autogen.egg-info/dependency_links.txt
 agentgit_autogen.egg-info/requires.txt
 agentgit_autogen.egg-info/top_level.txt
 tests/test_autogen_smoke.py
+tests/test_llm_capture.py

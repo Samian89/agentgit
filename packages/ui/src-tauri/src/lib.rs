@@ -33,6 +33,7 @@ pub struct CommitRow {
     timestamp: i64,
     message: String,
     tool_call: Option<String>,
+    llm_call: Option<String>,
     metadata: String,
 }
 
@@ -120,7 +121,7 @@ async fn get_sessions(db_path: String) -> Result<Vec<SessionRow>, String> {
 async fn get_commits(db_path: String, session_id: String) -> Result<Vec<CommitRow>, String> {
     let pool = open_pool(&db_path).await?;
     let rows = sqlx::query(
-        "SELECT hash, tree, parent, session_id, timestamp, message, tool_call, metadata \
+        "SELECT hash, tree, parent, session_id, timestamp, message, tool_call, llm_call, metadata \
          FROM commits WHERE session_id = ? ORDER BY timestamp ASC",
     )
     .bind(&session_id)
@@ -138,6 +139,7 @@ async fn get_commits(db_path: String, session_id: String) -> Result<Vec<CommitRo
             timestamp: r.get("timestamp"),
             message: r.get("message"),
             tool_call: r.get("tool_call"),
+            llm_call: r.get("llm_call"),
             metadata: r.get("metadata"),
         })
         .collect())

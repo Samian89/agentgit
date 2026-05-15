@@ -21,6 +21,7 @@ export interface CommitRow {
   timestamp: number;
   message: string;
   tool_call: string | null;
+  llm_call: string | null;
   metadata: string;
 }
 
@@ -54,6 +55,21 @@ export interface ToolCall {
   output: unknown | null;
   started_at: number;
   completed_at: number | null;
+  status: "pending" | "success" | "error";
+  error: string | null;
+}
+
+export interface LlmCall {
+  id: string;
+  provider: string;
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  response: string;
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number } | null;
+  costEstimateUsd: number | null;
+  startedAt: number;
+  completedAt: number | null;
+  durationMs: number | null;
   status: "pending" | "success" | "error";
   error: string | null;
 }

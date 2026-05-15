@@ -179,6 +179,7 @@ class AgentWrapper:
         self,
         message: str,
         tool_call: Optional[Dict[str, Any]] = None,
+        llm_call: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         tree_hash = self._empty_tree_hash()
@@ -188,8 +189,11 @@ class AgentWrapper:
         # verify on the same hash produces the same digest. The `author`
         # field is part of the hashed body even when null; omitting it here
         # would cause TS verify to report "tampered" on Python-written commits.
+        # "llmCall" is placed after "author" to keep alphabetical key order in
+        # the source for readability; sort_keys ensures canonical form.
         commit_obj = {
             "author": None,
+            "llmCall": llm_call,
             "message": message,
             "metadata": metadata or {},
             "parent": self._session_head,
@@ -203,14 +207,13 @@ class AgentWrapper:
 
         conn = self._db()
         try:
-            # Insert into the full v2 schema: include author_name, author_email,
-            # signature, public_key columns explicitly so the row is canonical
-            # and round-trips identically through TS Repository.verifyCommit.
+            # Insert into the full v3 schema: include llm_call (migration 003)
+            # alongside tool_call, author_* etc.
             conn.execute(
                 "INSERT OR IGNORE INTO commits"
-                " (hash, tree, parent, session_id, timestamp, message, tool_call, metadata,"
+                " (hash, tree, parent, session_id, timestamp, message, tool_call, llm_call, metadata,"
                 "  author_name, author_email, signature, public_key)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     commit_hash,
                     tree_hash,
@@ -219,6 +222,7 @@ class AgentWrapper:
                     now,
                     message,
                     json.dumps(tool_call) if tool_call is not None else None,
+                    json.dumps(llm_call) if llm_call is not None else None,
                     json.dumps(metadata or {}),
                     None,  # author_name
                     None,  # author_email
@@ -340,6 +344,63 @@ class AgentWrapper:
             conn.commit()
         finally:
             conn.close()
+
+    def record_llm_call(
+        self,
+        *,
+        provider: str,
+        model: str,
+        messages: List[Dict[str, str]],
+        response: str,
+        usage: Optional[Dict[str, int]] = None,
+        cost_estimate_usd: Optional[float] = None,
+        started_at: Optional[int] = None,
+        completed_at: Optional[int] = None,
+        error: Optional[str] = None,
+    ) -> str:
+        """Record an LLM invocation as a first-class AgentGit commit.
+
+        Auto-generates id (UUIDv4), timestamps, durationMs and status when
+        omitted (mirrors TS Repository.recordLlmCall). The resulting commit
+        has message "LLM: <model>" and an llmCall payload; toolCall is null.
+        Returns the content-addressed commit hash (64 hex chars).
+        """
+        self._ensure_session()
+        now = _now_ms()
+        call_id = str(uuid.uuid4())
+        started = started_at if started_at is not None else now
+        completed = completed_at if completed_at is not None else now
+        duration = completed - started if completed is not None else None
+        status = "error" if error else "success"
+
+        # Normalise usage keys to camelCase if caller used snake_case (defensive).
+        norm_usage: Optional[Dict[str, int]] = None
+        if usage:
+            norm_usage = {
+                "promptTokens": usage.get("promptTokens") or usage.get("prompt_tokens", 0),
+                "completionTokens": usage.get("completionTokens") or usage.get("completion_tokens", 0),
+                "totalTokens": usage.get("totalTokens") or usage.get("total_tokens", 0),
+            }
+
+        llm_call: Dict[str, Any] = {
+            "id": call_id,
+            "provider": provider,
+            "model": model,
+            "messages": messages,
+            "response": response,
+            "usage": norm_usage,
+            "costEstimateUsd": cost_estimate_usd,
+            "startedAt": started,
+            "completedAt": completed,
+            "durationMs": duration,
+            "status": status,
+            "error": error,
+        }
+
+        message = f"LLM: {model}"
+        return self._record_commit(
+            message=message, tool_call=None, llm_call=llm_call, metadata={}
+        )
 
     def __enter__(self) -> "AgentWrapper":
         return self

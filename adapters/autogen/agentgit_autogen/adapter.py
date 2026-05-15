@@ -81,6 +81,82 @@ class AutoGenAdapter:
 
             agent._process_received_message = patched_process  # type: ignore[attr-defined]
 
+        # LLM capture hook: patch common AutoGen OAI client paths so that
+        # chat.completions.create calls produce a structured LlmCall commit.
+        # The patched function extracts request (messages, model) + response usage.
+        oai_client = getattr(agent, "client", None) or getattr(agent, "_oai_client", None)
+        if oai_client is not None and hasattr(oai_client, "create"):
+            orig_create = oai_client.create
+            w = self._wrapper
+
+            def patched_create(*args: Any, **kwargs: Any) -> Any:
+                # kwargs typically: model, messages
+                model = kwargs.get("model", "gpt-4o")
+                messages = kwargs.get("messages", [])
+                res = orig_create(*args, **kwargs)
+                # response may be dict or object with usage
+                usage = None
+                resp_text = ""
+                if isinstance(res, dict):
+                    u = res.get("usage", {})
+                    usage = {
+                        "promptTokens": u.get("prompt_tokens", 0),
+                        "completionTokens": u.get("completion_tokens", 0),
+                        "totalTokens": u.get("total_tokens", 0),
+                    }
+                    choices = res.get("choices", [])
+                    if choices:
+                        resp_text = (choices[0].get("message") or {}).get("content", "")
+                else:
+                    u = getattr(res, "usage", None)
+                    if u:
+                        usage = {
+                            "promptTokens": getattr(u, "prompt_tokens", 0),
+                            "completionTokens": getattr(u, "completion_tokens", 0),
+                            "totalTokens": getattr(u, "total_tokens", 0),
+                        }
+                    # try choices
+                    ch = getattr(res, "choices", None)
+                    if ch:
+                        m = ch[0].message if hasattr(ch[0], "message") else ch[0]
+                        resp_text = getattr(m, "content", "") or ""
+                try:
+                    w.record_llm_call(
+                        provider="autogen",
+                        model=str(model),
+                        messages=messages if isinstance(messages, list) else [],
+                        response=resp_text or str(res)[:200],
+                        usage=usage,
+                    )
+                except Exception:
+                    pass
+                return res
+
+            oai_client.create = patched_create  # type: ignore[attr-defined]
+
+        # Also support direct _generate_oai_reply_from_client patch (some AutoGen versions)
+        gen_oai = getattr(agent, "_generate_oai_reply_from_client", None)
+        if callable(gen_oai):
+            w = self._wrapper
+
+            def patched_gen(client: Any, messages: Any, *a: Any, **k: Any) -> Any:
+                model = getattr(client, "model", "unknown")
+                res = gen_oai(client, messages, *a, **k)
+                # simplistic: treat as LLM success
+                try:
+                    w.record_llm_call(
+                        provider="autogen",
+                        model=str(model),
+                        messages=messages if isinstance(messages, list) else [],
+                        response=str(res)[:200] if res else "",
+                        usage=None,
+                    )
+                except Exception:
+                    pass
+                return res
+
+            agent._generate_oai_reply_from_client = patched_gen  # type: ignore[attr-defined]
+
     @property
     def session_id(self) -> Optional[str]:
         return self._wrapper._session_id

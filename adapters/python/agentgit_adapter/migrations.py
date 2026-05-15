@@ -86,6 +86,11 @@ ALTER TABLE commits ADD COLUMN signature    TEXT;
 ALTER TABLE commits ADD COLUMN public_key   TEXT;
 """
 
+# Migration 003 mirrors packages/core/src/migrations/003_llm_call.ts.
+MIGRATION_003_SQL = """
+ALTER TABLE commits ADD COLUMN llm_call TEXT;
+"""
+
 
 @dataclass(frozen=True)
 class Migration:
@@ -97,6 +102,7 @@ class Migration:
 MIGRATIONS: List[Migration] = [
     Migration(1, "initial", MIGRATION_001_SQL),
     Migration(2, "author_signature", MIGRATION_002_SQL),
+    Migration(3, "llm_call", MIGRATION_003_SQL),
 ]
 
 TARGET_VERSION = MIGRATIONS[-1].version

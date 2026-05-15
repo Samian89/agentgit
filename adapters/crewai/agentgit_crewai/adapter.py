@@ -65,7 +65,30 @@ class CrewAIAdapter:
 
         def patched_execute(*args: Any, **kwargs: Any) -> Any:
             wrapper(event="task.execute", task=task_name, args=args, kwargs=kwargs)
-            return original_execute(*args, **kwargs)
+            result = original_execute(*args, **kwargs)
+            # LLM capture: CrewAI aggregates usage_metrics on the Task (or result)
+            # after execution. Emit one LlmCall per task with real model/usage.
+            try:
+                metrics = getattr(task, "usage_metrics", None) or (getattr(result, "usage_metrics", None) if result else None)
+                if metrics:
+                    model = getattr(metrics, "model", None) or metrics.get("model", "crewai-model") if isinstance(metrics, dict) else "crewai-model"
+                    u = getattr(metrics, "usage", None) or metrics
+                    usage = None
+                    if u:
+                        pt = getattr(u, "prompt_tokens", 0) or (u.get("prompt_tokens") if isinstance(u, dict) else 0)
+                        ct = getattr(u, "completion_tokens", 0) or (u.get("completion_tokens") if isinstance(u, dict) else 0)
+                        tt = getattr(u, "total_tokens", pt + ct) or (u.get("total_tokens") if isinstance(u, dict) else pt + ct)
+                        usage = {"promptTokens": int(pt), "completionTokens": int(ct), "totalTokens": int(tt)}
+                    wrapper.record_llm_call(  # type: ignore[attr-defined]
+                        provider="crewai",
+                        model=str(model),
+                        messages=[{"role": "user", "content": task_name}],
+                        response=str(result)[:200] if result else "",
+                        usage=usage,
+                    )
+            except Exception:
+                pass
+            return result
 
         task.execute = patched_execute  # type: ignore[attr-defined]
 

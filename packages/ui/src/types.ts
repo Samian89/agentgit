@@ -5,4 +5,5 @@ export type {
   DiffResult,
   BlameEntry,
   ToolCall,
+  LlmCall,
 } from "@agentgit/ui-components";

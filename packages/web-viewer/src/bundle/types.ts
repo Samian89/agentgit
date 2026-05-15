@@ -20,6 +20,32 @@ export interface ToolCall {
   error: string | null;
 }
 
+export interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+export interface LlmMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+}
+
+export interface LlmCall {
+  id: string;
+  provider: string;
+  model: string;
+  messages: LlmMessage[];
+  response: string;
+  usage: LlmUsage | null;
+  costEstimateUsd: number | null;
+  startedAt: number;
+  completedAt: number | null;
+  durationMs: number | null;
+  status: "pending" | "success" | "error";
+  error: string | null;
+}
+
 export interface Commit {
   hash: string;
   type: "commit";
@@ -29,6 +55,7 @@ export interface Commit {
   timestamp: number;
   message: string;
   toolCall: ToolCall | null;
+  llmCall?: LlmCall | null;
   metadata: Record<string, unknown>;
   author: Author | null;
   signature: string | null;
@@ -73,4 +100,4 @@ export const BUNDLE_FORMAT_VERSION = 1;
  * agentgit ≤ this schemaVersion. Bumping this means the viewer has been
  * audited against the new SQLite schema.
  */
-export const VIEWER_SCHEMA_VERSION = 2;
+export const VIEWER_SCHEMA_VERSION = 3;

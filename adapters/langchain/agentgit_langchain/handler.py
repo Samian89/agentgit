@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS commits (
     timestamp   INTEGER NOT NULL,
     message     TEXT    NOT NULL,
     tool_call   TEXT,
+    llm_call    TEXT,
     metadata    TEXT    NOT NULL DEFAULT '{}',
     author_name TEXT,
     author_email TEXT,
@@ -248,6 +249,10 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
             "INSERT OR IGNORE INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
             (2, "author_signature", now),
         )
+        conn.execute(
+            "INSERT OR IGNORE INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
+            (3, "llm_call", now),
+        )
         conn.commit()
 
     def _write_object(self, hash_hex: str, content: str) -> None:
@@ -341,12 +346,14 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         self,
         message: str,
         tool_call: Optional[Dict[str, Any]] = None,
+        llm_call: Optional[Dict[str, Any]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         tree_hash = self._empty_tree_hash()
         now = _now_ms()
         commit_obj = {
             "author": None,
+            "llmCall": llm_call,
             "message": message,
             "metadata": metadata or {},
             "parent": self._session_head,
@@ -362,9 +369,9 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
         try:
             conn.execute(
                 "INSERT OR IGNORE INTO commits"
-                " (hash, tree, parent, session_id, timestamp, message, tool_call, metadata,"
+                " (hash, tree, parent, session_id, timestamp, message, tool_call, llm_call, metadata,"
                 "  author_name, author_email, signature, public_key)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     commit_hash,
                     tree_hash,
@@ -373,6 +380,7 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
                     now,
                     message,
                     json.dumps(tool_call) if tool_call is not None else None,
+                    json.dumps(llm_call) if llm_call is not None else None,
                     json.dumps(metadata or {}),
                     None,
                     None,
@@ -502,9 +510,18 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
     def on_llm_start(
         self, serialized: Dict[str, Any], prompts: List[str], **kwargs: Any
     ) -> None:
+        invocation_params = kwargs.get("invocation_params", {}) or {}
+        model = (
+            invocation_params.get("model_name")
+            or invocation_params.get("model")
+            or getattr(serialized, "name", None)
+            or "unknown"
+        )
         self._pending_llm = {
             "serialized": serialized,
             "prompts": prompts,
+            "invocation_params": invocation_params,
+            "model": str(model),
             "startedAt": _now_ms(),
         }
 
@@ -518,13 +535,44 @@ class AgentGitCallbackHandler(BaseCallbackHandler):
             for gen_list in response.generations
             for gen in gen_list
         ]
+        response_text = "\n".join(outputs) if outputs else ""
+        model = pending.get("model", "unknown")
+        started = pending.get("startedAt", _now_ms())
+        completed = _now_ms()
+
+        # Extract usage from llm_output if present (LangChain style: {"token_usage": {...}})
+        usage = None
+        llm_out = response.llm_output or {}
+        token_usage = llm_out.get("token_usage") or llm_out.get("usage") or {}
+        if token_usage:
+            pt = token_usage.get("prompt_tokens") or token_usage.get("promptTokens") or 0
+            ct = token_usage.get("completion_tokens") or token_usage.get("completionTokens") or 0
+            tt = token_usage.get("total_tokens") or token_usage.get("totalTokens") or (pt + ct)
+            usage = {"promptTokens": int(pt), "completionTokens": int(ct), "totalTokens": int(tt)}
+
+        llm_call: Dict[str, Any] = {
+            "id": str(uuid.uuid4()),
+            "provider": "langchain",
+            "model": model,
+            "messages": [{"role": "user", "content": p} for p in pending.get("prompts", [])],
+            "response": response_text,
+            "usage": usage,
+            "costEstimateUsd": None,
+            "startedAt": started,
+            "completedAt": completed,
+            "durationMs": completed - started,
+            "status": "success",
+            "error": None,
+        }
         self._record_commit(
-            message="llm: response",
+            message=f"LLM: {model}",
+            llm_call=llm_call,
+            tool_call=None,
             metadata={
                 "prompts": pending["prompts"],
                 "outputs": outputs,
-                "llmOutput": response.llm_output,
-                "startedAt": pending["startedAt"],
-                "completedAt": _now_ms(),
+                "llmOutput": llm_out,
+                "startedAt": started,
+                "completedAt": completed,
             },
         )

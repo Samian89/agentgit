@@ -38,4 +38,33 @@ describe("StepCard", () => {
     await userEvent.click(screen.getByTestId("step-card"));
     expect(onSelect).toHaveBeenCalled();
   });
+
+  it("renders llm summary when llm_call present and expands to show prompt/response", async () => {
+    const llmCommit: CommitRow = {
+      ...COMMIT,
+      message: "LLM call",
+      tool_call: null,
+      llm_call: JSON.stringify({
+        id: "llm-1",
+        provider: "test",
+        model: "test-model",
+        messages: [{ role: "user", content: "hello" }],
+        response: "world",
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        costEstimateUsd: 0.0001,
+        startedAt: 1000,
+        completedAt: 1100,
+        durationMs: 100,
+        status: "success",
+        error: null,
+      }),
+    };
+    render(<StepCard commit={llmCommit} selected={false} onSelect={vi.fn()} />);
+    expect(screen.getByText(/llm: test-model · 2 tok/)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("step-card"));
+    expect(screen.getByText("Prompt (last user)")).toBeInTheDocument();
+    expect(screen.getByText("hello")).toBeInTheDocument();
+    expect(screen.getByText("Response")).toBeInTheDocument();
+    expect(screen.getByText("world")).toBeInTheDocument();
+  });
 });

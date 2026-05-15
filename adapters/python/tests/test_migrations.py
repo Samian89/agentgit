@@ -17,6 +17,7 @@ import pytest
 from agentgit_adapter.migrations import (
     MIGRATION_001_SQL,
     MIGRATION_002_SQL,
+    MIGRATION_003_SQL,
     MIGRATIONS,
     TARGET_VERSION,
     get_current_version,
@@ -57,6 +58,10 @@ class TestSqlParityWithTypeScript:
         ts_sql = _extract_ts_sql(TS_MIG_DIR / "002_author_signature.ts")
         assert ts_sql == MIGRATION_002_SQL
 
+    def test_migration_003_matches_ts(self):
+        ts_sql = _extract_ts_sql(TS_MIG_DIR / "003_llm_call.ts")
+        assert ts_sql == MIGRATION_003_SQL
+
 
 class TestRunner:
     def test_empty_db_is_version_0(self, fresh_db):
@@ -65,7 +70,7 @@ class TestRunner:
     def test_v01_fixture_is_implicitly_version_1(self, fresh_db):
         fresh_db.executescript(MIGRATION_001_SQL)
         assert get_current_version(fresh_db) == 1
-        assert [m.version for m in pending_migrations(fresh_db)] == [2]
+        assert [m.version for m in pending_migrations(fresh_db)] == [2, 3]
 
     def test_upgrades_v01_fixture_to_target(self, fresh_db):
         fresh_db.executescript(MIGRATION_001_SQL)
@@ -73,11 +78,11 @@ class TestRunner:
         assert status["current"] == TARGET_VERSION
         assert status["pending"] == []
 
-        # schema_version has both 1 (back-filled) and 2 recorded.
+        # schema_version has 1 (back-filled), 2 and 3 recorded.
         rows = fresh_db.execute(
             "SELECT version FROM schema_version ORDER BY version"
         ).fetchall()
-        assert [r[0] for r in rows] == [1, 2]
+        assert [r[0] for r in rows] == [1, 2, 3]
 
         cols = [
             r[1]
@@ -132,7 +137,7 @@ class TestRunner:
         rows = fresh_db.execute(
             "SELECT version FROM schema_version ORDER BY version"
         ).fetchall()
-        assert [r[0] for r in rows] == [1, 2]
+        assert [r[0] for r in rows] == [1, 2, 3]
 
     def test_upgrades_fresh_db_to_target(self, fresh_db):
         status = run_migrations(fresh_db)
@@ -168,7 +173,7 @@ class TestRunner:
 
 
 class TestNormalizationProducesCanonicalDdl:
-    """After normalizing a v0.1 fixture the sqlite_master DDL must equal a fresh v2 install."""
+    """After normalizing a v0.1 fixture the sqlite_master DDL must equal a fresh v3 install."""
 
     _V1_FIXTURE = """
         CREATE TABLE sessions (
@@ -216,12 +221,12 @@ class TestNormalizationProducesCanonicalDdl:
 
 
 class TestSchemaIdentityAcrossLanguages:
-    """At version 2 the sqlite_master dump must equal the TS-created one.
+    """At version 3 the sqlite_master dump must equal the TS-created one.
 
     Because both implementations execute byte-for-byte identical SQL strings
     (verified by TestSqlParityWithTypeScript), the on-disk schema rows must
     be identical. This test pins the exact set of (type, name, tbl_name)
-    tuples we expect at version 2, plus the column lists for each table.
+    tuples we expect at version 3, plus the column lists for each table.
     """
 
     EXPECTED_TABLES = {
@@ -250,6 +255,7 @@ class TestSchemaIdentityAcrossLanguages:
         "timestamp",
         "message",
         "tool_call",
+        "llm_call",
         "metadata",
         "author_name",
         "author_email",
@@ -284,7 +290,7 @@ class TestSchemaIdentityAcrossLanguages:
 
 
 class TestAdapterAppliesMigrations:
-    """End-to-end: wrap_agent on a fresh path leaves a v2 DB."""
+    """End-to-end: wrap_agent on a fresh path leaves a v3 DB."""
 
     def test_wrap_agent_initialises_to_target_version(self, tmp_path):
         from agentgit_adapter import wrap_agent

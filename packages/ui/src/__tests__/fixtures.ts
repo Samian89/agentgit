@@ -34,6 +34,7 @@ export const FIXTURE_COMMITS: CommitRow[] = [
       status: "success",
       error: null,
     }),
+    llm_call: null,
     metadata: "{}",
   },
   {
@@ -53,6 +54,7 @@ export const FIXTURE_COMMITS: CommitRow[] = [
       status: "success",
       error: null,
     }),
+    llm_call: null,
     metadata: "{}",
   },
 ];

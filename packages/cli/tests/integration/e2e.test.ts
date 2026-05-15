@@ -4,11 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type { ToolCall } from "@agentgit/core";
+import type { ToolCall, LlmCallInput } from "@agentgit/core";
 import { Repository } from "@agentgit/core";
 import { AgentGitSession, wrapAgentJS } from "@agentgit/sdk";
 import { diffCommand } from "../../src/commands/diff.js";
 import { exportCommand } from "../../src/commands/export.js";
+import { logCommand } from "../../src/commands/log.js";
+import { replayCommand } from "../../src/commands/replay.js";
 
 // ---------------------------------------------------------------------------
 // Zod schema for ReplayExport validation
@@ -266,6 +268,83 @@ describe("E2E integration", () => {
     }
 
     // exportCommand closes the repo; reopen for cleanup
+    repos.push(Repository.open(agentgitDir));
+  });
+
+  // -----------------------------------------------------------------------
+  // Test 5 — logCommand and replayCommand render LlmCall commits (via recordLlmCall)
+  // -----------------------------------------------------------------------
+
+  it("log shows llm: lines, --llm-only/--tool-only filter; replay shows LLM block with tokens/prompt/response", () => {
+    const repo = Repository.init(agentgitDir);
+    const session = repo.createSession("llm-e2e-session");
+
+    // tool commit
+    repo.commit({
+      sessionId: session.id,
+      message: "tool step",
+      toolCall: makeTc("searchWeb"),
+      stateEntries: [],
+    });
+
+    // LLM commit via recordLlmCall (from spec 001)
+    const llmInput: LlmCallInput = {
+      sessionId: session.id,
+      provider: "anthropic",
+      model: "claude-e2e",
+      messages: [{ role: "user", content: "Summarize the news" }],
+      response: "Summary: markets up.",
+      usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 },
+      costEstimateUsd: 0.00055,
+      startedAt: Date.now() - 100,
+      completedAt: Date.now(),
+    };
+    repo.recordLlmCall(llmInput);
+
+    repo.index.close();
+
+    // Test logCommand output contains both tool: and llm:
+    const logLines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args) => logLines.push(args.map(String).join(" ")));
+    logCommand(agentgitDir);
+    vi.restoreAllMocks();
+    const logOut = logLines.join("\n");
+    expect(logOut).toContain("tool: searchWeb (success)");
+    expect(logOut).toContain("llm: claude-e2e (30 tok ~$0.0006)");
+
+    // --llm-only filters out the tool commit
+    const logLlmOnly: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args) => logLlmOnly.push(args.map(String).join(" ")));
+    logCommand(agentgitDir, { llmOnly: true });
+    vi.restoreAllMocks();
+    const llmOnlyOut = logLlmOnly.join("\n");
+    expect(llmOnlyOut).toContain("llm: claude-e2e");
+    expect(llmOnlyOut).not.toContain("searchWeb");
+
+    // --tool-only filters out the llm commit
+    const logToolOnly: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args) => logToolOnly.push(args.map(String).join(" ")));
+    logCommand(agentgitDir, { toolOnly: true });
+    vi.restoreAllMocks();
+    const toolOnlyOut = logToolOnly.join("\n");
+    expect(toolOnlyOut).toContain("tool: searchWeb");
+    expect(toolOnlyOut).not.toContain("claude-e2e");
+
+    // Test replayCommand shows LLM block
+    const replayLines: string[] = [];
+    vi.spyOn(console, "log").mockImplementation((...args) => replayLines.push(args.map(String).join(" ")));
+    replayCommand(agentgitDir, session.name);
+    vi.restoreAllMocks();
+    const replayOut = replayLines.join("\n");
+    expect(replayOut).toContain("LLM: claude-e2e (anthropic)");
+    expect(replayOut).toContain("Tokens: 20 prompt / 10 completion / 30 total");
+    expect(replayOut).toContain("Prompt:");
+    expect(replayOut).toContain("Summarize the news");
+    expect(replayOut).toContain("Response:");
+    expect(replayOut).toContain("Summary: markets up.");
+    expect(replayOut).toContain("Status: success");
+
+    // reopen for afterEach cleanup
     repos.push(Repository.open(agentgitDir));
   });
 });

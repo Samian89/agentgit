@@ -7,4 +7,5 @@ agentgit_openai_agents.egg-info/SOURCES.txt
 agentgit_openai_agents.egg-info/dependency_links.txt
 agentgit_openai_agents.egg-info/requires.txt
 agentgit_openai_agents.egg-info/top_level.txt
+tests/test_llm_capture.py
 tests/test_openai_agents_smoke.py

@@ -1,6 +1,19 @@
 import { Repository } from "@agentgit/core";
 
-export function replayCommand(agentgitDir: string, sessionIdOrName: string): void {
+export interface ReplayOptions {
+  full?: boolean;
+}
+
+function truncate(str: string, max = 500): string {
+  if (str.length <= max) return str;
+  return str.slice(0, max) + "…";
+}
+
+export function replayCommand(
+  agentgitDir: string,
+  sessionIdOrName: string,
+  options: ReplayOptions = {},
+): void {
   const repo = Repository.open(agentgitDir);
   const sessions = repo.index.listSessions();
   const session = sessions.find(
@@ -42,6 +55,40 @@ export function replayCommand(agentgitDir: string, sessionIdOrName: string): voi
         console.log(`  Output: ${outputStr.split("\n").join("\n  ")}`);
       }
       console.log(`  Status: ${tc.status}`);
+    }
+    if (commit.llmCall) {
+      const lc = commit.llmCall;
+      console.log(`  LLM: ${lc.model} (${lc.provider})`);
+      if (lc.usage) {
+        console.log(
+          `    Tokens: ${lc.usage.promptTokens} prompt / ${lc.usage.completionTokens} completion / ${lc.usage.totalTokens} total`,
+        );
+      }
+      if (lc.costEstimateUsd !== null) {
+        console.log(`    Cost:   ~$${lc.costEstimateUsd.toFixed(4)}`);
+      }
+      if (lc.durationMs !== null) {
+        console.log(`    Duration: ${lc.durationMs}ms`);
+      }
+      console.log(`    Prompt:`);
+      const lastUser = [...lc.messages].reverse().find((m) => m.role === "user");
+      const promptText = lastUser ? lastUser.content : (lc.messages[lc.messages.length - 1]?.content ?? "");
+      const promptOut = options.full ? promptText : truncate(promptText);
+      const indentedPrompt = promptOut
+        ? promptOut.split("\n").map((line) => `      ${line}`).join("\n")
+        : "      (empty)";
+      console.log(indentedPrompt);
+      console.log(`    Response:`);
+      const respText = lc.response ?? "";
+      const respOut = options.full ? respText : truncate(respText);
+      const indentedResp = respOut
+        ? respOut.split("\n").map((line) => `      ${line}`).join("\n")
+        : "      (empty)";
+      console.log(indentedResp);
+      console.log(`    Status: ${lc.status}`);
+      if (lc.error) {
+        console.log(`    Error: ${lc.error}`);
+      }
     }
     console.log();
   }

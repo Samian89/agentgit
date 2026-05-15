@@ -18,6 +18,7 @@ function makeCommit(overrides: Partial<Commit> & Pick<Commit, "hash">): Commit {
     timestamp: overrides.timestamp ?? 1_000,
     message: overrides.message ?? "msg-" + overrides.hash,
     toolCall: overrides.toolCall ?? null,
+    llmCall: overrides.llmCall ?? null,
     metadata: overrides.metadata ?? {},
     author: overrides.author ?? null,
     signature: overrides.signature ?? null,

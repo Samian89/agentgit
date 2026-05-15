@@ -46,13 +46,57 @@ class OpenAIAgentsAdapter:
                 "the upstream SDK exposes this hook on every Agent instance."
             )
 
+        wrapper_ref = None  # will be set after AgentWrapper creation
+
         class _RunStepCallable:
             name = getattr(agent, "name", "run_step")
 
             def __call__(self, *args: Any, **kwargs: Any) -> Any:
-                return original_run_step(*args, **kwargs)
+                payload = args[0] if args else kwargs
+                result = original_run_step(*args, **kwargs)
+                # LLM capture hook: if the step payload or result carries ModelResponse-like data
+                # (model, usage), record a structured LlmCall via the shared wrapper.
+                # This is a no-op for pure tool steps so existing smoke tests keep their commit counts.
+                model = None
+                usage = None
+                messages = []
+                resp_text = ""
+                if isinstance(payload, dict):
+                    model = payload.get("model") or payload.get("_model")
+                    if "messages" in payload:
+                        messages = payload["messages"]
+                # Check result for ModelResponse shape (used by openai-agents SDK)
+                if hasattr(result, "model"):
+                    model = getattr(result, "model", model)
+                if hasattr(result, "usage"):
+                    u = getattr(result, "usage", None)
+                    if u:
+                        usage = {
+                            "promptTokens": getattr(u, "input_tokens", 0) or getattr(u, "prompt_tokens", 0),
+                            "completionTokens": getattr(u, "output_tokens", 0) or getattr(u, "completion_tokens", 0),
+                            "totalTokens": getattr(u, "total_tokens", 0),
+                        }
+                if hasattr(result, "output"):
+                    out = getattr(result, "output", None)
+                    if out and hasattr(out, "content"):
+                        resp_text = getattr(out, "content", "") or ""
+                    elif isinstance(out, str):
+                        resp_text = out
+                if model and wrapper_ref is not None:
+                    try:
+                        wrapper_ref.record_llm_call(
+                            provider="openai-agents",
+                            model=str(model),
+                            messages=messages or [{"role": "user", "content": str(payload)}],
+                            response=resp_text or str(result)[:200],
+                            usage=usage,
+                        )
+                    except Exception:
+                        pass
+                return result
 
         self._wrapper = AgentWrapper(_RunStepCallable(), repo_path, guards=guards)
+        wrapper_ref = self._wrapper
         agent.run_step = self._wrapper  # type: ignore[attr-defined]
 
     @property

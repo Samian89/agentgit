@@ -46,7 +46,9 @@ program
   .command("log")
   .description("List commits in reverse chronological order")
   .option("-s, --session <id>", "Filter by session ID or name")
-  .action((options: { session?: string }) => {
+  .option("--llm-only", "Show only LLM commits (hides commits without an llmCall)")
+  .option("--tool-only", "Show only tool commits (hides commits without a toolCall)")
+  .action((options: { session?: string; llmOnly?: boolean; toolOnly?: boolean }) => {
     const agentgitDir = requireAgentGitDir();
     logCommand(agentgitDir, options);
   });
@@ -78,9 +80,10 @@ program
 program
   .command("replay <session>")
   .description("Print recorded tool calls for a session in sequence")
-  .action((session: string) => {
+  .option("--full", "Do not truncate prompt/response text (default truncates at 500 chars)")
+  .action((session: string, options: { full?: boolean }) => {
     const agentgitDir = requireAgentGitDir();
-    replayCommand(agentgitDir, session);
+    replayCommand(agentgitDir, session, options);
   });
 
 program

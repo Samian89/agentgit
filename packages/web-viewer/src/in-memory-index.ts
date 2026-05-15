@@ -144,6 +144,7 @@ function toCommitRow(c: Commit): CommitRow {
     timestamp: c.timestamp,
     message: c.message,
     tool_call: c.toolCall ? JSON.stringify(c.toolCall) : null,
+    llm_call: c.llmCall ? JSON.stringify(c.llmCall) : null,
     metadata: JSON.stringify(c.metadata ?? {}),
   };
 }

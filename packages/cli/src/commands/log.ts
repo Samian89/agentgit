@@ -4,6 +4,8 @@ import { printLog } from "../pretty-printer.js";
 
 export interface LogOptions {
   session?: string;
+  llmOnly?: boolean;
+  toolOnly?: boolean;
 }
 
 export function logCommand(agentgitDir: string, options: LogOptions = {}): void {
@@ -28,13 +30,21 @@ export function logCommand(agentgitDir: string, options: LogOptions = {}): void 
 
   const allCommits = targetSessions.flatMap((s) => repo.log(s.id));
 
-  if (allCommits.length === 0) {
+  let commitsToPrint = allCommits;
+  if (options.llmOnly) {
+    commitsToPrint = commitsToPrint.filter((c) => c.llmCall != null);
+  }
+  if (options.toolOnly) {
+    commitsToPrint = commitsToPrint.filter((c) => c.toolCall != null);
+  }
+
+  if (commitsToPrint.length === 0) {
     console.log("No commits found.");
     repo.index.close();
     return;
   }
 
   const sessionMap = new Map<string, Session>(sessions.map((s) => [s.id, s]));
-  printLog(allCommits, sessionMap);
+  printLog(commitsToPrint, sessionMap);
   repo.index.close();
 }

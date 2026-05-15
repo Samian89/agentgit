@@ -9,4 +9,5 @@ export type {
   DiffResult,
   BlameEntry,
   ToolCall,
+  LlmCall,
 } from "./types.js";

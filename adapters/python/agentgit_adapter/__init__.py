@@ -1,5 +1,5 @@
 from .adapter import AgentWrapper, wrap_agent
-from .decorator import agentgit_record
+from .decorator import agentgit_record, agentgit_record_llm, openai_chat_extractor
 from .guards import (
     ConfirmationGuard,
     GuardRegistry,
@@ -20,6 +20,8 @@ __all__ = [
     "AgentWrapper",
     "wrap_agent",
     "agentgit_record",
+    "agentgit_record_llm",
+    "openai_chat_extractor",
     "ConfirmationGuard",
     "SnapshotGuard",
     "GuardRegistry",

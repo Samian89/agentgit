@@ -5,6 +5,7 @@ const GREEN = "\x1b[32m";
 const RED = "\x1b[31m";
 const YELLOW = "\x1b[33m";
 const CYAN = "\x1b[36m";
+const MAGENTA = "\x1b[35m";
 const DIM = "\x1b[2m";
 
 function formatTimestamp(ts: number): string {
@@ -29,6 +30,15 @@ export function printLog(
     console.log(`    ${c.message}`);
     if (c.toolCall) {
       console.log(`    ${DIM}tool: ${c.toolCall.name} (${c.toolCall.status})${RESET}`);
+    }
+    if (c.llmCall) {
+      const tokenStr = c.llmCall.usage
+        ? `${c.llmCall.usage.totalTokens} tok`
+        : "? tok";
+      const costStr = c.llmCall.costEstimateUsd !== null
+        ? ` ~$${c.llmCall.costEstimateUsd.toFixed(4)}`
+        : "";
+      console.log(`    ${DIM}${MAGENTA}llm: ${c.llmCall.model} (${tokenStr}${costStr})${RESET}`);
     }
     console.log();
   }

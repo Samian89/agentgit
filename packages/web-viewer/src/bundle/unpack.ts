@@ -147,6 +147,9 @@ export async function readBundle(gz: Uint8Array): Promise<BundleContents> {
     if (c.parent !== null && typeof c.parent !== "string") {
       throw new Error(`Bundle: commit ${c.hash} has invalid parent field`);
     }
+    if (c.llmCall != null && typeof c.llmCall !== "object") {
+      throw new Error(`Bundle: commit ${c.hash} has invalid llmCall`);
+    }
 
     if (seenCommitHashes.has(c.hash)) {
       throw new Error(

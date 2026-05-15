@@ -9,4 +9,5 @@ agentgit_langchain.egg-info/requires.txt
 agentgit_langchain.egg-info/top_level.txt
 tests/test_auto_install.py
 tests/test_handler.py
+tests/test_handler_llm_end.py
 tests/test_langchain_default_guards.py
