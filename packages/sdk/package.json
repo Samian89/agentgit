@@ -30,7 +30,13 @@
   "dependencies": {
     "@agentgit/core": "workspace:*"
   },
+  "peerDependencies": {
+    "@agentgit/adapter-anthropic-sdk": "workspace:*",
+    "@agentgit/adapter-vercel-ai-sdk": "workspace:*"
+  },
   "devDependencies": {
+    "@agentgit/adapter-anthropic-sdk": "workspace:*",
+    "@agentgit/adapter-vercel-ai-sdk": "workspace:*",
     "@microsoft/api-extractor": "^7.58.7",
     "@types/node": "*",
     "rimraf": "*",
