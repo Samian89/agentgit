@@ -99,6 +99,31 @@ jobs:
       - name: Run pytest
         run: pytest adapters/python adapters/langchain
 
+  js-adapters:
+    name: JS SDK adapters (smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Build core so the adapters resolve @agentgit/core's compiled dist if
+      # they import from it now or in the future. Both smoke tests are
+      # currently self-contained, but pre-building keeps the local repro
+      # command identical to CI and matches the pattern used by other jobs.
+      - run: pnpm --filter @agentgit/core build
+      # Run each adapter's node --test as a separate step so a failure is
+      # attributable to the specific adapter that broke.
+      - name: Anthropic SDK adapter smoke test
+        run: node --test adapters/anthropic-sdk/smoke.test.mjs
+      - name: Vercel AI SDK adapter smoke test
+        run: node --test adapters/vercel-ai-sdk/smoke.test.mjs
+
   api-extractor:
     name: API surface
     runs-on: ubuntu-latest
