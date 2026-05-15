@@ -12,22 +12,21 @@
 
  RUN  v2.1.9 /app/data/repos/samian89-agentgit/packages/web-viewer
 
- ✓ src/in-memory-index.test.ts (9 tests) 19ms
- ✓ src/bundle/unpack.test.ts (7 tests) 51ms
- ✓ src/App.test.tsx (2 tests) 38ms
+ ✓ src/in-memory-index.test.ts (9 tests) 17ms
+ ✓ src/bundle/hash.test.ts (13 tests) 14ms
+ ✓ src/bundle/unpack.test.ts (7 tests) 50ms
+ ✓ src/App.test.tsx (2 tests) 35ms
 
- Test Files  3 passed (3)
-      Tests  18 passed (18)
-   Start at  19:52:02
-   Duration  990ms (transform 240ms, setup 0ms, collect 440ms, tests 108ms, environment 1.00s, prepare 318ms)
+ Test Files  4 passed (4)
+      Tests  31 passed (31)
+   Start at  19:54:26
+   Duration  931ms (transform 217ms, setup 0ms, collect 473ms, tests 116ms, environment 1.27s, prepare 412ms)
 
 
 === pnpm test (root, what unit CI job runs) ===
-   ✓ agentgit push/fetch/pull integration > happy path: push (persisted token) → fetch (--token flag) → pull fast-forward 315ms
- ✓ |remote-server| tests/roundtrip.test.ts (6 tests) 724ms
 
- Test Files  39 passed (39)
-      Tests  328 passed (328)
-   Start at  19:52:04
-   Duration  2.59s (transform 7.14s, setup 0ms, collect 28.45s, tests 11.75s, environment 985ms, prepare 5.24s)
+ Test Files  40 passed (40)
+      Tests  341 passed (341)
+   Start at  19:54:27
+   Duration  2.86s (transform 7.57s, setup 0ms, collect 29.98s, tests 14.47s, environment 1.39s, prepare 5.24s)
 
