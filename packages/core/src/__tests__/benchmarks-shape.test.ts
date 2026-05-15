@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MockInstance } from "vitest";
 
 // Light-weight assertion that the bench harness exports the four named
 // scenarios with their declared budgets. We import the harness as a value
@@ -62,9 +61,9 @@ function makeFakeScenario(name: string, budget: number, runMs: number): FakeScen
 }
 
 describe("benchmarks/harness --check exit contract", () => {
-  let exitSpy: MockInstance;
-  let stdoutSpy: MockInstance;
-  let stderrSpy: MockInstance;
+  let exitSpy: any;
+  let stdoutSpy: any;
+  let stderrSpy: any;
 
   beforeEach(() => {
     // Throw on process.exit so we (a) detect that it was called and (b) don't
