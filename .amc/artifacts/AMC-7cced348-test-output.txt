@@ -1,7 +1,7 @@
-# AMC-7cced348 ticket test command output (cycle 4 rerun)
+# AMC-7cced348 ticket test command output (cycle 5 rerun)
 # Repo: /app/data/repos/samian89-agentgit
-# HEAD: eac6062d4b30c62deec451702c594f3f5fb59126
-# Date: 2026-05-15T19:47:17Z
+# HEAD: 5ed12ea4034a01fe24c9d1153acc5046f9156243
+# Date: 2026-05-15T19:49:26Z
 
 ## Command (verbatim from ticket)
 pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core api:update && pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check && pnpm api:check
@@ -84,7 +84,6 @@ Analysis will use the bundled TypeScript version 5.9.3
 API Extractor completed successfully
 step5_exit=0
 
-## Combined chained command exit code
 FULL_TEST_EXIT=0
 
 TESTER_VERDICT: pass

@@ -1,0 +1,22 @@
+
+> @agentgit/web-viewer@0.1.0 typecheck /app/data/repos/samian89-agentgit/packages/web-viewer
+> tsc --noEmit
+
+
+=== pnpm --filter @agentgit/web-viewer test ===
+
+> @agentgit/web-viewer@0.1.0 test /app/data/repos/samian89-agentgit/packages/web-viewer
+> vitest run
+
+
+ RUN  v2.1.9 /app/data/repos/samian89-agentgit/packages/web-viewer
+
+ ✓ src/in-memory-index.test.ts (9 tests) 17ms
+ ✓ src/bundle/unpack.test.ts (7 tests) 41ms
+ ✓ src/App.test.tsx (2 tests) 37ms
+
+ Test Files  3 passed (3)
+      Tests  18 passed (18)
+   Start at  19:49:21
+   Duration  912ms (transform 242ms, setup 0ms, collect 435ms, tests 95ms, environment 891ms, prepare 291ms)
+
