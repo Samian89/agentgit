@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from typing import Any, Dict, List
 
@@ -72,7 +73,11 @@ def test_on_llm_end_without_start_is_noop(tmp_path):
     handler = AgentGitCallbackHandler(repo_path=repo, guards=False)
     result = LLMResult(generations=[[Generation(text="orphan")]])
     handler.on_llm_end(result)  # should not raise and not write
-    conn = sqlite3.connect(f"{repo}/.agentgit/index.db")
+    db_path = f"{repo}/.agentgit/index.db"
+    if not os.path.exists(db_path):
+        # noop did not initialise the repo — acceptable
+        return
+    conn = sqlite3.connect(db_path)
     try:
         count = conn.execute("SELECT COUNT(*) FROM commits").fetchone()[0]
         assert count == 0

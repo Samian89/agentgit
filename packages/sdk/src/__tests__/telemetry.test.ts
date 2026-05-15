@@ -81,7 +81,7 @@ describe("SDK telemetry", () => {
     );
 
     const { chunks } = await captureStderr(async () => {
-      const wrapped = wrapAgentJS(new DemoAgent(), { repoDir });
+      const wrapped = await wrapAgentJS(new DemoAgent(), { repoDir });
       await wrapped.run("hello world");
       wrapped.agentgit.end();
       wrapped.agentgit.repo.index.close();
@@ -100,7 +100,7 @@ describe("SDK telemetry", () => {
     // No config file => telemetry off (default).
 
     const { chunks } = await captureStderr(async () => {
-      const wrapped = wrapAgentJS(new DemoAgent(), { repoDir });
+      const wrapped = await wrapAgentJS(new DemoAgent(), { repoDir });
       // Acceptance criterion: reporter is never instantiated.
       expect(wrapped.agentgit.repo.reporter).toBeNull();
       await wrapped.run("hello");

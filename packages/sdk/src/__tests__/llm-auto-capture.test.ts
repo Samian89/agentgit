@@ -115,7 +115,7 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new AnthropicAgent(mockAnth);
-    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "anth-session" });
+    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "anth-session" });
     repos.push(wrapped.agentgit.repo);
 
     // Allow the fire-and-forget dynamic-import + wrap to settle
@@ -146,7 +146,7 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new VercelAgent(mockVercel);
-    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "vercel-session" });
+    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "vercel-session" });
     repos.push(wrapped.agentgit.repo);
 
     await new Promise((r) => setTimeout(r, 0));
@@ -173,7 +173,7 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new AnthropicAgent(mockAnth);
-    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "no-llm", llm: false });
+    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "no-llm", llm: false });
     repos.push(wrapped.agentgit.repo);
 
     await new Promise((r) => setTimeout(r, 0));
@@ -198,7 +198,7 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     };
     const agent = new ToolUsingAgentWithLlm(mockAnth);
-    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "mixed" });
+    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "mixed" });
     repos.push(wrapped.agentgit.repo);
 
     await new Promise((r) => setTimeout(r, 0));
@@ -227,7 +227,7 @@ describe("wrapAgentJS LLM auto-capture", () => {
       },
     } as any;
     // Should not throw
-    const wrapped = wrapAgentJS(agent, { repoDir, sessionName: "weird" });
+    const wrapped = await wrapAgentJS(agent, { repoDir, sessionName: "weird" });
     repos.push(wrapped.agentgit.repo);
 
     await new Promise((r) => setTimeout(r, 0));

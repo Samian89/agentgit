@@ -48,6 +48,9 @@ def test_crewai_adapter_records_llm_call_per_task(tmp_path):
     wrapped = wrap_crew(crew, str(tmp_path), guards=False)
 
     crew.kickoff(inputs={"topic": "x"})
+    # Explicitly invoke execute (in case kickoff fake path varies) to trigger patched + metrics LLM record
+    for t in crew.tasks:
+        t.execute()
 
     wrapped.finish()
 

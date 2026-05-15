@@ -61,7 +61,7 @@ describe("wrapAgentJS default guards", () => {
     // vitest runs without a TTY, so the default prompt resolves to "n" and
     // the ConfirmationGuard blocks the destructive bash call.
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, { repoDir });
+    const wrapped = await wrapAgentJS(agent, { repoDir });
     closeables.push(wrapped.agentgit.repo);
 
     await expect(wrapped.bash("rm -rf /tmp/x")).rejects.toThrow(
@@ -72,7 +72,7 @@ describe("wrapAgentJS default guards", () => {
 
   it("allows non-destructive tool calls even when guards are default-on", async () => {
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, { repoDir });
+    const wrapped = await wrapAgentJS(agent, { repoDir });
     closeables.push(wrapped.agentgit.repo);
 
     // writeFile -> not in destructive list, snapshot guard tries to read
@@ -83,7 +83,7 @@ describe("wrapAgentJS default guards", () => {
 
   it("opt-out via { guards: false } applies no guards", async () => {
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, { repoDir, guards: false });
+    const wrapped = await wrapAgentJS(agent, { repoDir, guards: false });
     closeables.push(wrapped.agentgit.repo);
 
     const result = await wrapped.bash("rm -rf /tmp/x");
@@ -102,7 +102,7 @@ describe("wrapAgentJS default guards", () => {
     };
 
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, {
+    const wrapped = await wrapAgentJS(agent, {
       repoDir,
       guards: [trackingGuard],
     });
@@ -135,7 +135,7 @@ describe("wrapAgentJS guards from .agentgit/config.json", () => {
     );
 
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, { repoDir: tmpDir });
+    const wrapped = await wrapAgentJS(agent, { repoDir: tmpDir });
     closeables.push(wrapped.agentgit.repo);
 
     const result = await wrapped.bash("ls -la");
@@ -153,7 +153,7 @@ describe("wrapAgentJS guards from .agentgit/config.json", () => {
     );
 
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, { repoDir: tmpDir });
+    const wrapped = await wrapAgentJS(agent, { repoDir: tmpDir });
     closeables.push(wrapped.agentgit.repo);
 
     await expect(wrapped.bash("rm -rf /tmp/x")).rejects.toThrow(
@@ -168,7 +168,7 @@ describe("wrapAgentJS guards from .agentgit/config.json", () => {
     );
 
     const agent = new BashAgent();
-    const wrapped = wrapAgentJS(agent, { repoDir: tmpDir });
+    const wrapped = await wrapAgentJS(agent, { repoDir: tmpDir });
     closeables.push(wrapped.agentgit.repo);
 
     // bash is destructive but the entire guard chain is disabled.

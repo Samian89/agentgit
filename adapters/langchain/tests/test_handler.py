@@ -163,12 +163,12 @@ class TestLLMRecording:
 
     def test_llm_start_end_creates_commit(self, handler, tmp_repo):
         self._setup(handler)
-        handler.on_llm_start({"name": "ChatOpenAI"}, ["Hello"])
+        handler.on_llm_start({"name": "ChatOpenAI"}, ["Hello"], invocation_params={"model_name": "gpt-4o"})
         handler.on_llm_end(self._make_llm_result("Hi there"))
 
         commits = db_rows(tmp_repo, "SELECT message, metadata FROM commits")
         assert len(commits) == 1
-        assert "llm" in commits[0][0]
+        assert "LLM" in commits[0][0]
         meta = json.loads(commits[0][1])
         assert meta["prompts"] == ["Hello"]
         assert "Hi there" in meta["outputs"]

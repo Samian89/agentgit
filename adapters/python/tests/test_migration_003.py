@@ -26,14 +26,23 @@ def v2_db(tmp_path):
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(MIGRATION_001_SQL)
     conn.executescript(MIGRATION_002_SQL)
-    # Manually insert schema_version rows for v1/v2 (as if previously migrated)
+    # schema_version table + v1/v2 rows to simulate a v2-migrated DB (run_migrations creates the table)
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS schema_version (
+            version    INTEGER NOT NULL PRIMARY KEY,
+            name       TEXT    NOT NULL,
+            applied_at INTEGER NOT NULL
+        );
+        """
+    )
     now = 1_700_000_000_000
     conn.execute(
-        "INSERT INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
+        "INSERT OR IGNORE INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
         (1, "initial", now),
     )
     conn.execute(
-        "INSERT INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
+        "INSERT OR IGNORE INTO schema_version (version, name, applied_at) VALUES (?,?,?)",
         (2, "author_signature", now),
     )
     conn.commit()
