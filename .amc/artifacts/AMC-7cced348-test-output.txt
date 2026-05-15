@@ -1,0 +1,81 @@
+# AMC-7cced348 ticket test command output
+# Repo: /app/data/repos/samian89-agentgit
+# HEAD: e4bddf0887c7fe91c299f64f0383529711c210f8
+# Date: 2026-05-15T19:45:02Z
+
+## Command
+pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core api:update && pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check && pnpm api:check
+
+## Output
+
+> @agentgit/core@0.1.0 build /app/data/repos/samian89-agentgit/packages/core
+> tsc
+
+
+
+> @agentgit/core@0.1.0 api:update /app/data/repos/samian89-agentgit/packages/core
+> api-extractor run --local
+
+
+[1mapi-extractor 7.58.7 [36m - https://api-extractor.com/[39m
+[22m
+Using configuration from ./api-extractor.json
+Analysis will use the bundled TypeScript version 5.9.3
+
+API Extractor completed successfully
+
+
+> @agentgit/core@0.1.0 api:check /app/data/repos/samian89-agentgit/packages/core
+> api-extractor run
+
+
+[1mapi-extractor 7.58.7 [36m - https://api-extractor.com/[39m
+[22m
+Using configuration from ./api-extractor.json
+Analysis will use the bundled TypeScript version 5.9.3
+
+API Extractor completed successfully
+
+
+> @agentgit/sdk@0.1.0 api:check /app/data/repos/samian89-agentgit/packages/sdk
+> api-extractor run
+
+
+[1mapi-extractor 7.58.7 [36m - https://api-extractor.com/[39m
+[22m
+Using configuration from ./api-extractor.json
+Analysis will use the bundled TypeScript version 5.9.3
+
+API Extractor completed successfully
+
+
+> agentgit@0.1.0 api:check /app/data/repos/samian89-agentgit
+> pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check
+
+
+> @agentgit/core@0.1.0 api:check /app/data/repos/samian89-agentgit/packages/core
+> api-extractor run
+
+
+[1mapi-extractor 7.58.7 [36m - https://api-extractor.com/[39m
+[22m
+Using configuration from ./api-extractor.json
+Analysis will use the bundled TypeScript version 5.9.3
+
+API Extractor completed successfully
+
+> @agentgit/sdk@0.1.0 api:check /app/data/repos/samian89-agentgit/packages/sdk
+> api-extractor run
+
+
+[1mapi-extractor 7.58.7 [36m - https://api-extractor.com/[39m
+[22m
+Using configuration from ./api-extractor.json
+Analysis will use the bundled TypeScript version 5.9.3
+
+API Extractor completed successfully
+
+## Exit code
+FULL_TEST_EXIT=0
+
+TESTER_VERDICT: pass
