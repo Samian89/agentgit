@@ -225,6 +225,52 @@ export interface Ed25519KeyPair {
 }
 
 // @public
+export type FetchLike = (url: string, init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string | Uint8Array;
+    signal?: AbortSignal;
+}) => Promise<{
+    ok: boolean;
+    status: number;
+    headers: {
+        get(name: string): string | null;
+    };
+    text(): Promise<string>;
+    json(): Promise<unknown>;
+}>;
+
+// @public (undocumented)
+export interface FetchOptions {
+    // (undocumented)
+    baseUrl: string;
+    // (undocumented)
+    client?: RemoteClient;
+    // (undocumented)
+    fetchImpl?: FetchLike;
+    refNames?: string[];
+    // (undocumented)
+    remote: string;
+    // (undocumented)
+    token: string;
+}
+
+// @public
+export function fetchRefs(repo: Repository, opts: FetchOptions): Promise<FetchResult>;
+
+// @public (undocumented)
+export interface FetchResult {
+    // (undocumented)
+    downloadedObjects: number;
+    // (undocumented)
+    fetchedRefs: Array<{
+        name: string;
+        target: Hash;
+        localName: string;
+    }>;
+}
+
+// @public
 export function fsck(agentgitDir: string, options?: FsckOptions): FsckReport;
 
 // @public (undocumented)
@@ -428,12 +474,41 @@ export interface MigrationStatus {
 // @public (undocumented)
 export function migrationStatus(db: Database.Database): MigrationStatus;
 
+// @public (undocumented)
+export interface ObjectsDownloadRequest {
+    // (undocumented)
+    hashes: Hash[];
+}
+
+// @public (undocumented)
+export interface ObjectsMissingRequest {
+    haves: Hash[];
+    wants: Hash[];
+}
+
+// @public (undocumented)
+export interface ObjectsMissingResponse {
+    missing: Hash[];
+}
+
 // @public
 export class ObjectStore {
     constructor(objectsDir: string, reporter?: Reporter | null);
     has(hash: Hash): boolean;
     read(hash: Hash): Record<string, unknown>;
     write(obj: Record<string, unknown>): Hash;
+}
+
+// @public (undocumented)
+export interface ObjectsUploadResponse {
+    committed?: boolean;
+    received: Hash[];
+    rejected: Array<{
+        hash: Hash;
+        reason: string;
+    }>;
+    // (undocumented)
+    uploadId: string;
 }
 
 // @public
@@ -481,6 +556,53 @@ export function pendingMigrations(db: Database.Database): Migration[];
 // @public (undocumented)
 export type PromptFn = (message: string) => Promise<string>;
 
+// @public (undocumented)
+export interface PullOptions extends FetchOptions {
+    refName: string;
+}
+
+// @public
+export function pullRef(repo: Repository, opts: PullOptions): Promise<PullResult>;
+
+// @public (undocumented)
+export interface PullResult extends FetchResult {
+    localRef: {
+        name: string;
+        target: Hash;
+    };
+    upToDate: boolean;
+}
+
+// @public (undocumented)
+export interface PushOptions {
+    // (undocumented)
+    baseUrl: string;
+    chunkSize?: number;
+    client?: RemoteClient;
+    fetchImpl?: FetchLike;
+    refName?: string;
+    remote: string;
+    sessionId: string;
+    // (undocumented)
+    token: string;
+}
+
+// @public (undocumented)
+export interface PushResult {
+    // (undocumented)
+    pushedRef: {
+        name: string;
+        target: Hash;
+    };
+    // (undocumented)
+    uploadedObjects: number;
+    // (undocumented)
+    uploadId: string;
+}
+
+// @public
+export function pushSession(repo: Repository, opts: PushOptions): Promise<PushResult>;
+
 // @public
 export function reachableObjects(repo: Repository): Set<Hash>;
 
@@ -496,6 +618,16 @@ export interface Ref {
     target: Hash;
     type: RefType;
     updatedAt: Timestamp;
+}
+
+// @public (undocumented)
+export interface RefsListRequest {
+}
+
+// @public (undocumented)
+export interface RefsListResponse {
+    // (undocumented)
+    refs: RemoteRef[];
 }
 
 // @public
@@ -514,7 +646,104 @@ export class RefStore {
 }
 
 // @public (undocumented)
+export interface RefsUpdateRequest {
+    // (undocumented)
+    name: string;
+    new: Hash;
+    old: Hash | null;
+    // (undocumented)
+    type: RefType;
+}
+
+// @public (undocumented)
+export type RefsUpdateResponse = {
+    ok: true;
+} | {
+    ok: false;
+    error: "ref-conflict";
+    current: Hash | null;
+} | {
+    ok: false;
+    error: "missing-target";
+};
+
+// @public (undocumented)
 export type RefType = "branch" | "tag" | "session-head";
+
+// @public
+export const REMOTE_PROTOCOL_PREFIX = "/api/v1";
+
+// @public
+export const REMOTE_PROTOCOL_VERSION = 1;
+
+// @public
+export class RemoteClient {
+    constructor(opts: RemoteClientOptions);
+    commitUpload(uploadId: string): Promise<ObjectsUploadResponse>;
+    downloadObjects(hashes: Hash[]): Promise<UploadLine[]>;
+    listRefs(): Promise<RemoteRef[]>;
+    negotiateMissing(wants: Hash[], haves: Hash[]): Promise<Hash[]>;
+    updateRef(name: string, type: RefType, oldTarget: Hash | null, newTarget: Hash): Promise<RefsUpdateResponse>;
+    uploadObjects(uploadId: string, lines: UploadLine[]): Promise<ObjectsUploadResponse>;
+}
+
+// @public (undocumented)
+export interface RemoteClientOptions {
+    // (undocumented)
+    baseUrl: string;
+    fetchImpl?: FetchLike;
+    timeoutMs?: number;
+    // (undocumented)
+    token: string;
+}
+
+// @public (undocumented)
+export interface RemoteError {
+    // (undocumented)
+    error: string;
+    // (undocumented)
+    message?: string;
+}
+
+// @public
+export class RemoteProtocolError extends Error {
+    constructor(message: string, status: number, code: string | null);
+    // (undocumented)
+    readonly code: string | null;
+    // (undocumented)
+    readonly status: number;
+}
+
+// @public (undocumented)
+export interface RemoteRef {
+    // (undocumented)
+    name: string;
+    // (undocumented)
+    target: Hash;
+    // (undocumented)
+    type: RefType;
+}
+
+// @public (undocumented)
+export interface RemoteStateFile {
+    // (undocumented)
+    [remoteName: string]: RemoteUploadState;
+}
+
+// @public (undocumented)
+export function remoteStateFilePath(agentgitDir: string): string;
+
+// @public
+export interface RemoteUploadState {
+    // (undocumented)
+    received: Hash[];
+    // (undocumented)
+    startedAt: number;
+    // (undocumented)
+    uploadId: string;
+    // (undocumented)
+    wants: Hash[];
+}
 
 // @public
 export interface Reporter {
@@ -532,6 +761,9 @@ export class Repository {
     createBranch(name: string, commitHash: Hash): void;
     createSession(name: string, metadata?: Record<string, unknown>): Session;
     diff(fromHash: Hash, toHash: Hash): StepDiff;
+    fetch(opts: Omit<FetchOptions, "repo"> & {
+        repo?: never;
+    }): Promise<FetchResult>;
     fsck(options?: FsckOptions): FsckReport;
     gc(options?: GcOptions): GcResult;
     getBranch(name: string): Hash | null;
@@ -548,6 +780,12 @@ export class Repository {
     // (undocumented)
     readonly objects: ObjectStore;
     static open(agentgitDir: string): Repository;
+    pull(opts: Omit<PullOptions, "repo"> & {
+        repo?: never;
+    }): Promise<PullResult>;
+    push(opts: Omit<PushOptions, "repo"> & {
+        repo?: never;
+    }): Promise<PushResult>;
     // (undocumented)
     readonly refs: RefStore;
     readonly reporter: Reporter | null;
@@ -767,6 +1005,14 @@ export interface UnpackResult {
     refs: Ref[];
     // (undocumented)
     sessions: Session[];
+}
+
+// @public (undocumented)
+export interface UploadLine {
+    // (undocumented)
+    body: Record<string, unknown>;
+    // (undocumented)
+    hash: Hash;
 }
 
 // @public

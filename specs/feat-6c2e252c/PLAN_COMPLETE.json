@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "featureId": "feat-6c2e252c",
+  "summary": "Polish and stabilization pass: add missing CI coverage for Python/JS adapters, fix api-extractor baseline drift for core, fix core typecheck failure, and establish test infrastructure for web-viewer package.",
+  "tasks": [
+    {
+      "title": "Add new Python adapters to CI pytest matrix",
+      "goal": "Extend the CI 'python' job in .github/workflows/ci.yml to install and run pytest for adapters/openai-agents, adapters/autogen, and adapters/crewai in addition to the existing python and langchain adapters, ensuring the three new SDK-specific adapters are tested on every CI run across Python 3.10/3.11/3.12.",
+      "specRef": "specs/feat-6c2e252c/001-python-adapters-ci/spec.md",
+      "acceptanceCriteria": [
+        "CI python job installs all five adapters via pip install -e ...[dev]",
+        "pytest invocation covers all five adapter directories",
+        "All 95+ Python adapter tests pass in CI matrix",
+        "Local reproduction matches CI install + pytest commands"
+      ],
+      "testCommand": "python -m pip install -e adapters/python[dev] -e adapters/langchain[dev] -e adapters/openai-agents[dev] -e adapters/autogen[dev] -e adapters/crewai[dev] && python -m pytest adapters/python adapters/langchain adapters/openai-agents adapters/autogen adapters/crewai -q",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Restore api-extractor baseline for @agentgit/core",
+      "goal": "Run pnpm --filter @agentgit/core api:update to regenerate the canonical API report, commit the updated packages/core/etc/agentgit-core.api.md, and verify that pnpm api:check (both core and sdk) exits 0 so the CI 'API surface' job passes and future public-API regressions are detected.",
+      "specRef": "specs/feat-6c2e252c/002-api-extractor-baseline/spec.md",
+      "acceptanceCriteria": [
+        "pnpm --filter @agentgit/core api:check exits 0",
+        "pnpm --filter @agentgit/sdk api:check exits 0",
+        "Root pnpm api:check exits 0",
+        "CI 'API surface' job passes on clean checkout",
+        "Committed baseline matches dist/index.d.ts public surface"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core api:update && pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check && pnpm api:check",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Fix MockInstance type errors blocking core typecheck",
+      "goal": "Update type annotations for vi.spyOn variables in packages/core/src/__tests__/benchmarks-shape.test.ts so that tsc --noEmit passes under the project's strict settings (exactOptionalPropertyTypes, noUncheckedIndexedAccess), restoring the typecheck gate for the core package.",
+      "specRef": "specs/feat-6c2e252c/003-core-typecheck-fix/spec.md",
+      "acceptanceCriteria": [
+        "pnpm --filter @agentgit/core typecheck exits 0",
+        "Root pnpm typecheck exits 0",
+        "Core package tests including benchmarks-shape.test.ts continue to pass",
+        "Fix is isolated to test file type annotations; no behaviour change"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core typecheck && pnpm --filter @agentgit/core test -- --reporter=verbose benchmarks-shape",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Add JS SDK adapter smoke tests to CI",
+      "goal": "Add a CI job (or extend an existing job) that builds @agentgit/core and then runs `node --test adapters/anthropic-sdk/smoke.test.mjs` and `node --test adapters/vercel-ai-sdk/smoke.test.mjs`, ensuring the two JavaScript SDK adapters have automated regression coverage in the same manner as the Python adapters.",
+      "specRef": "specs/feat-6c2e252c/004-js-adapters-ci/spec.md",
+      "acceptanceCriteria": [
+        "CI job executes both node --test smoke commands after core build",
+        "All 5 smoke tests (3 anthropic + 2 vercel) pass in CI",
+        "Job can be reproduced locally with same node + pnpm commands",
+        "Job failure is attributable to the specific adapter that broke"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && node --test adapters/anthropic-sdk/smoke.test.mjs && node --test adapters/vercel-ai-sdk/smoke.test.mjs",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Establish test infrastructure for web-viewer package",
+      "goal": "Add vitest + happy-dom + testing-library dependencies and a vitest.config.ts to packages/web-viewer, create a package.json test script, and add at least two test files (bundle unpack + in-memory index) so that the web viewer has automated coverage of its core loading and query logic.",
+      "specRef": "specs/feat-6c2e252c/005-web-viewer-tests/spec.md",
+      "acceptanceCriteria": [
+        "packages/web-viewer/package.json has a test script and required devDependencies",
+        "packages/web-viewer/vitest.config.ts exists with happy-dom environment",
+        "At least one test file exercises readBundle or InMemoryIndex and passes",
+        "pnpm --filter @agentgit/web-viewer test exits 0",
+        "CI unit job (or new web-viewer job) runs and passes the new tests",
+        "Typecheck for web-viewer continues to pass"
+      ],
+      "testCommand": "pnpm --filter @agentgit/web-viewer typecheck && pnpm --filter @agentgit/web-viewer test",
+      "phase": "build",
+      "dependsOn": []
+    }
+  ]
+}
