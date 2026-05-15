@@ -570,6 +570,7 @@ describe("bundle reachability validation", () => {
       timestamp: 0,
       message: "x",
       toolCall: null,
+      llmCall: null,
       metadata: {},
       author: null,
     };

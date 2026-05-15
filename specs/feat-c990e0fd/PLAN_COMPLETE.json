@@ -1,0 +1,172 @@
+{
+  "version": 1,
+  "featureId": "feat-c990e0fd",
+  "summary": "Promote LLM calls to first-class commits in AgentGit: add an LlmCall type and schema migration in core, capture LLM events in the Anthropic and Vercel AI SDK adapters, the SDK proxy, and the Python adapter family, render them in the CLI, web viewer and Tauri UI, and add optional secrets redaction so prompts and responses can be safely persisted.",
+  "tasks": [
+    {
+      "title": "Core LlmCall type, migration 003, and Repository.recordLlmCall",
+      "goal": "Add the LlmCall / LlmUsage / LlmMessage types to packages/core/src/types.ts, extend Commit and CommitInput with llmCall, register migration 003 that adds the llm_call TEXT column to the commits table (bumping TARGET_VERSION to 3), thread the column through SqliteIndex insertCommit and rowToCommit, add Repository.recordLlmCall as a thin convenience wrapper that round-trips canonical-JSON hashes, extend the commit telemetry span with a benign hasLlmCall boolean, and regenerate the api-extractor baseline at packages/core/etc/agentgit-core.api.md so the new public surface is locked in.",
+      "specRef": "specs/feat-c990e0fd/001-core-llmcall-type-and-migration/spec.md",
+      "acceptanceCriteria": [
+        "packages/core/src/types.ts exports LlmCall, LlmUsage, LlmMessage and Commit.llmCall: LlmCall | null",
+        "packages/core/src/migrations/003_llm_call.ts is registered and TARGET_VERSION === 3",
+        "Repository.commit({ llmCall }) round-trips through SQLite and the object store",
+        "Repository.recordLlmCall produces a deterministic content-addressed hash for fixed inputs",
+        "pnpm --filter @agentgit/core api:check exits 0 with the regenerated baseline",
+        "pnpm --filter @agentgit/core test passes"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core test && pnpm --filter @agentgit/core typecheck && pnpm --filter @agentgit/core api:update && pnpm api:check",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "wrapAgentJS auto-capture of agent.llm property",
+      "goal": "Extend packages/sdk/src/wrap.ts so that when a wrapped agent exposes an `llm` property shaped like an Anthropic client (messages.create) or a Vercel AI SDK module (generateText/streamText), calls through it are automatically wrapped via the existing adapter wrappers and recorded as LlmCall commits via Repository.recordLlmCall. Add a WrapOptions.llm field that supports false (opt out) and { provider, client } (explicit override), dynamic-import the adapter packages so the SDK does not hard-fail when they are not installed, and regenerate the SDK api-extractor baseline.",
+      "specRef": "specs/feat-c990e0fd/002-sdk-llm-auto-capture/spec.md",
+      "acceptanceCriteria": [
+        "Mocked Anthropic client on agent.llm produces an LlmCall commit with provider 'anthropic'",
+        "Mocked Vercel AI module on agent.llm produces an LlmCall commit with provider 'vercel-ai-sdk'",
+        "WrapOptions.llm === false suppresses all LLM auto-capture",
+        "Existing tool-call interception tests still pass",
+        "pnpm --filter @agentgit/sdk api:check exits 0 with the regenerated baseline"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && pnpm --filter @agentgit/sdk build && pnpm --filter @agentgit/sdk test && pnpm --filter @agentgit/sdk api:update && pnpm api:check",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall",
+        "Anthropic SDK adapter LlmCall emission",
+        "Vercel AI SDK adapter LlmCall emission"
+      ]
+    },
+    {
+      "title": "Anthropic SDK adapter LlmCall emission",
+      "goal": "Extend adapters/anthropic-sdk/src/index.mjs so each messages.create call emits an LlmCall (provider 'anthropic', model from response, normalized messages, joined text response, usage.totalTokens, durationMs, costEstimateUsd) via a new optional recorder.recordLlm hook, preserving the existing tool_use/tool_result tool-call capture. Add a pricing.mjs helper with a hard-coded per-model price table, extend inMemoryRecorder to expose llmCalls, and add smoke tests covering successful calls, error propagation, and an upstream throw.",
+      "specRef": "specs/feat-c990e0fd/003-anthropic-adapter-llm/spec.md",
+      "acceptanceCriteria": [
+        "wrapAnthropic emits exactly one LlmCall per successful messages.create",
+        "Recorded LlmCall fields (provider, model, messages, response, usage) match the upstream response shape",
+        "Upstream throw re-throws and records a status:error LlmCall",
+        "Existing tool_use/tool_result smoke tests continue to pass",
+        "pricing.mjs returns null for unknown models and numeric estimates for at least three Claude models"
+      ],
+      "testCommand": "node --test adapters/anthropic-sdk/smoke.test.mjs",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall"
+      ]
+    },
+    {
+      "title": "Vercel AI SDK adapter LlmCall emission",
+      "goal": "Extend adapters/vercel-ai-sdk/src/index.mjs so generateText emits an LlmCall (provider 'vercel-ai-sdk', model from result.response.modelId, usage from result.usage) and streamText accumulates text-delta deltas into the recorded response with usage captured from the post-stream promise. Add a pricing.mjs helper, extend inMemoryRecorder with llmCalls + recordLlm, and add smoke tests for generateText, streamText with synchronous usage, streamText with deferred usage, and error propagation.",
+      "specRef": "specs/feat-c990e0fd/004-vercel-ai-sdk-adapter-llm/spec.md",
+      "acceptanceCriteria": [
+        "wrapAI generateText emits an LlmCall with usage.totalTokens from the upstream result",
+        "wrapAI streamText emits an LlmCall after stream drain with response equal to concatenated text-delta payloads",
+        "Existing tool-call capture for generateText.toolCalls and streamText tool-call/tool-result events still works",
+        "Upstream throw propagates and a status:error LlmCall is recorded",
+        "pricing.mjs returns numeric estimates for at least two known model IDs"
+      ],
+      "testCommand": "node --test adapters/vercel-ai-sdk/smoke.test.mjs",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall"
+      ]
+    },
+    {
+      "title": "Python LLM capture helpers + migration 003 mirror",
+      "goal": "Mirror migration 003 in adapters/python/agentgit_adapter/migrations.py (TARGET_VERSION=3, ALTER TABLE commits ADD COLUMN llm_call TEXT). Extend AgentWrapper._record_commit to accept and persist an llm_call dict. Add AgentWrapper.record_llm_call and an @agentgit_record_llm decorator (with a built-in openai_chat_extractor). Upgrade adapters/langchain/agentgit_langchain/handler.py.on_llm_end to write a structured LlmCall (also updating _FALLBACK_SCHEMA_SQL). Add LLM-capture hooks in the openai-agents, autogen, and crewai adapters so their framework LLM events produce LlmCall commits with real model/usage data, and add unit tests under each adapter's tests directory.",
+      "specRef": "specs/feat-c990e0fd/005-python-llm-helpers/spec.md",
+      "acceptanceCriteria": [
+        "agentgit_adapter.TARGET_VERSION == 3 and run_migrations advances a v2 fixture DB to v3",
+        "AgentWrapper.record_llm_call writes a v3 commit row with llm_call populated and matching cross-language canonical-JSON hash",
+        "AgentGitCallbackHandler.on_llm_end writes a commit with llmCall populated (no longer metadata-only)",
+        "openai-agents / autogen / crewai adapters each emit at least one LlmCall in their smoke test",
+        "python -m pytest adapters/python adapters/langchain adapters/openai-agents adapters/autogen adapters/crewai -q passes on Python 3.10/3.11/3.12"
+      ],
+      "testCommand": "python -m pip install -e adapters/python[dev] -e adapters/langchain[dev] -e adapters/openai-agents[dev] -e adapters/autogen[dev] -e adapters/crewai[dev] && python -m pytest adapters/python adapters/langchain adapters/openai-agents adapters/autogen adapters/crewai -q",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall"
+      ]
+    },
+    {
+      "title": "CLI log and replay render LlmCall commits",
+      "goal": "Update packages/cli/src/pretty-printer.ts so printLog renders an 'llm: <model> (<N> tok ~$X.XXXX)' line for commits carrying an llmCall, and update packages/cli/src/commands/replay.ts to print a dedicated LLM block with model, provider, token breakdown, cost, duration, prompt (last user turn), response, and status. Add --llm-only and --tool-only flags to the log command and a --full flag to replay to bypass the default 500-char truncation. Register the new options in packages/cli/src/index.ts and add vitest tests covering both branches.",
+      "specRef": "specs/feat-c990e0fd/006-cli-log-replay-llm/spec.md",
+      "acceptanceCriteria": [
+        "agentgit log shows both tool: and llm: lines for sessions containing each kind of commit",
+        "agentgit log --llm-only and --tool-only filter commits as documented",
+        "agentgit replay prints LLM:, Tokens:, Prompt:, Response:, Status: for each LlmCall step",
+        "agentgit replay --full bypasses the default truncation at 500 chars",
+        "pnpm --filter @agentgit/cli test and pnpm --filter @agentgit/cli test:integration both pass"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && pnpm --filter @agentgit/cli build && pnpm --filter @agentgit/cli test && pnpm --filter @agentgit/cli test:integration",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall"
+      ]
+    },
+    {
+      "title": "Web viewer and Tauri UI render LlmCall in timeline",
+      "goal": "Add llm_call: string | null to CommitRow in packages/ui-components/src/types.ts and an LlmCall interface mirroring the core type. Extend StepCard to render an llm summary line (model and token count, optional cost) and an expanded detail panel (prompt, response, usage, duration, cost). Update the web-viewer InMemoryIndex.toCommitRow to serialize llmCall, extend packages/web-viewer/src/bundle/types.ts Commit to include llmCall, bump VIEWER_SCHEMA_VERSION to 3 in bundle/unpack.ts so v3 bundles open without throwing, and update the Tauri Rust IPC commit query to SELECT the new column. Add vitest tests for both rendering paths.",
+      "specRef": "specs/feat-c990e0fd/007-viewer-ui-llm-rendering/spec.md",
+      "acceptanceCriteria": [
+        "StepCard renders an llm: <model> · <N> tok headline for commits with an llmCall",
+        "Expanding the StepCard reveals prompt and response text",
+        "VIEWER_SCHEMA_VERSION === 3 and readBundle accepts a v3 bundle",
+        "InMemoryIndex.getCommits returns rows whose llm_call round-trips to the original payload",
+        "Tauri get_commits IPC returns llm_call populated from SQLite",
+        "pnpm --filter @agentgit/web-viewer test/typecheck and pnpm --filter @agentgit/ui test/typecheck pass"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && pnpm --filter @agentgit/web-viewer build && pnpm --filter @agentgit/web-viewer test && pnpm --filter @agentgit/web-viewer typecheck && pnpm --filter @agentgit/ui test && pnpm --filter @agentgit/ui typecheck",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall"
+      ]
+    },
+    {
+      "title": "Optional sensitive-data redaction for LLM and tool captures",
+      "goal": "Add an llm.redaction config block (redactPatterns, placeholder, includeToolCalls) to .agentgit/config.json honored by Repository.commit and Repository.recordLlmCall. Implement packages/core/src/redact.ts with a buildRedactor factory, helpers for redacting LlmCall and ToolCall, and apply it before hashing so the content-addressed store never sees the raw text. Mirror the same logic in adapters/python/agentgit_adapter/adapter.py so cross-language commit hashes match. Reject invalid regex patterns at Repository.init time with a clear error.",
+      "specRef": "specs/feat-c990e0fd/008-redact-patterns-config/spec.md",
+      "acceptanceCriteria": [
+        "Configured redactPatterns replace matching substrings in LlmCall.messages, response, and (by default) tool call input/output with [REDACTED]",
+        "The persisted commit hash is computed from the redacted payload",
+        "An invalid regex source causes Repository.init to throw with the offending pattern in the message",
+        "The Python adapter applies the same patterns and produces a byte-identical canonical-JSON hash to the TS implementation for a shared fixture",
+        "pnpm --filter @agentgit/core test and python -m pytest adapters/python -q -k redact pass"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core test && python -m pip install -e adapters/python[dev] && python -m pytest adapters/python -q -k redact",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall",
+        "Python LLM capture helpers + migration 003 mirror"
+      ]
+    },
+    {
+      "title": "Documentation update for LLM capture, adapters, CLI, redaction",
+      "goal": "Update README.md, docs/quickstart.md, docs/sdk-api.md, docs/adapters.md, docs/cli-reference.md, docs/safety-guards.md, and docs/architecture.md to describe LlmCall first-class commits, wrapAgentJS({ llm }) auto-capture, the Anthropic / Vercel AI SDK / Python adapter LLM-capture surfaces, the new CLI flags (--llm-only, --tool-only, --full), the redaction config block, and the schema bump to TARGET_VERSION = 3.",
+      "specRef": "specs/feat-c990e0fd/009-docs-update/spec.md",
+      "acceptanceCriteria": [
+        "README.md pitch and feature matrix mention LLM-call capture",
+        "docs/quickstart.md has a 'Capturing LLM calls' subsection with example code and log output",
+        "docs/sdk-api.md documents WrapOptions.llm and the LlmCall interface",
+        "docs/adapters.md gains Anthropic SDK, Vercel AI SDK, and Python LLM capture sections",
+        "docs/cli-reference.md documents --llm-only, --tool-only, --full",
+        "docs/safety-guards.md has a Redaction subsection",
+        "pnpm docs:build exits 0"
+      ],
+      "testCommand": "pnpm docs:build",
+      "phase": "build",
+      "dependsOn": [
+        "Core LlmCall type, migration 003, and Repository.recordLlmCall",
+        "wrapAgentJS auto-capture of agent.llm property",
+        "Anthropic SDK adapter LlmCall emission",
+        "Vercel AI SDK adapter LlmCall emission",
+        "Python LLM capture helpers + migration 003 mirror",
+        "CLI log and replay render LlmCall commits",
+        "Web viewer and Tauri UI render LlmCall in timeline",
+        "Optional sensitive-data redaction for LLM and tool captures"
+      ]
+    }
+  ]
+}

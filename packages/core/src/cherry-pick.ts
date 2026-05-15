@@ -347,6 +347,7 @@ export function cherryPick(
           message: step.message,
           stateEntries,
           toolCall: step.toolCall,
+          llmCall: step.llmCall,
           parentHash: parentForNext,
           metadata: {
             ...step.metadata,

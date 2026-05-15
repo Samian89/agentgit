@@ -42,7 +42,7 @@ describe("migrations runner", () => {
     const db = openRaw();
     db.exec(V01_FIXTURE_DDL);
     expect(getCurrentVersion(db)).toBe(1);
-    expect(pendingMigrations(db).map((m) => m.version)).toEqual([2]);
+    expect(pendingMigrations(db).map((m) => m.version)).toEqual([2, 3]);
     db.close();
   });
 
@@ -53,11 +53,11 @@ describe("migrations runner", () => {
     expect(status.current).toBe(TARGET_VERSION);
     expect(status.pending).toEqual([]);
 
-    // schema_version has both 1 (back-filled) and 2 recorded.
+    // schema_version has 1 (back-filled), 2, and 3 recorded.
     const rows = db
       .prepare(`SELECT version FROM schema_version ORDER BY version`)
       .all() as { version: number }[];
-    expect(rows.map((r) => r.version)).toEqual([1, 2]);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3]);
 
     // commits has the new author/signature columns.
     const cols = (db.prepare(`PRAGMA table_info(commits)`).all() as {
@@ -112,11 +112,11 @@ describe("migrations runner", () => {
       expect(indexNames).toContain(expected);
     }
 
-    // Both v1 and v2 are recorded in schema_version after normalization.
+    // v1, v2, and v3 are recorded in schema_version after normalization.
     const rows = db
       .prepare(`SELECT version FROM schema_version ORDER BY version`)
       .all() as { version: number }[];
-    expect(rows.map((r) => r.version)).toEqual([1, 2]);
+    expect(rows.map((r) => r.version)).toEqual([1, 2, 3]);
     db.close();
   });
 

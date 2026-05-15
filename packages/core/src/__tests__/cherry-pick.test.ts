@@ -323,6 +323,7 @@ describe("cherryPick — path traversal hardening", () => {
         timestamp: Date.now(),
         message: "evil",
         toolCall: null,
+        llmCall: null,
         metadata: {},
         author: null,
       };
@@ -405,6 +406,7 @@ describe("cherryPick — path traversal hardening", () => {
         timestamp: Date.now(),
         message: "evil-drive",
         toolCall: null,
+        llmCall: null,
         metadata: {},
         author: null,
       };
@@ -472,6 +474,7 @@ describe("cherryPick — path traversal hardening", () => {
         timestamp: Date.now(),
         message: "evil-abs",
         toolCall: null,
+        llmCall: null,
         metadata: {},
         author: null,
       };

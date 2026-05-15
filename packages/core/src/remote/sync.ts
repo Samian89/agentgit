@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { sha256 } from "../hash.js";
 import type { Repository } from "../repository.js";
-import type { Hash, RefType, ToolCall } from "../types.js";
+import type { Hash, LlmCall, RefType, ToolCall } from "../types.js";
 import { RemoteClient, type FetchLike } from "./client.js";
 import {
   RemoteProtocolError,
@@ -465,6 +465,7 @@ function indexCommitChain(repo: Repository, head: Hash): void {
       timestamp: body["timestamp"] as number,
       message: body["message"] as string,
       toolCall: (body["toolCall"] as ToolCall | null) ?? null,
+      llmCall: (body["llmCall"] as LlmCall | null) ?? null,
       metadata: (body["metadata"] as Record<string, unknown>) ?? {},
       author: (body["author"] as { name: string; email: string } | null) ?? null,
       signature: null,

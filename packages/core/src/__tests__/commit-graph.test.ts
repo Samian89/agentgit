@@ -32,6 +32,7 @@ function makeCommit(
     timestamp: Date.now(),
     message,
     toolCall: null,
+    llmCall: null,
     metadata: {},
   };
   return store.write(obj);
