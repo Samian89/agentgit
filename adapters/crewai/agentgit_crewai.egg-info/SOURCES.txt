@@ -7,5 +7,5 @@ agentgit_crewai.egg-info/SOURCES.txt
 agentgit_crewai.egg-info/dependency_links.txt
 agentgit_crewai.egg-info/requires.txt
 agentgit_crewai.egg-info/top_level.txt
+tests/test_crewai_llm_capture.py
 tests/test_crewai_smoke.py
-tests/test_llm_capture.py

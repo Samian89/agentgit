@@ -7,6 +7,7 @@
 import type { Commit } from '@agentgit/core';
 import type { Guard } from '@agentgit/core';
 import type { GuardResult } from '@agentgit/core';
+import type { Hash } from '@agentgit/core';
 import { Repository } from '@agentgit/core';
 import type { Session } from '@agentgit/core';
 import type { SessionStatus } from '@agentgit/core';
@@ -37,11 +38,44 @@ export interface AgentLike {
 }
 
 // @public
-export function wrapAgentJS<T extends AgentLike>(agent: T, options?: WrapOptions): WrappedAgent<T>;
+export function createLlmRecorderBridge(repo: Repository, sessionId: string, getParent: () => Hash | null, setParent: (h: Hash | null) => void): {
+    recordLlm(adapterLlmCall: {
+        id?: string;
+        provider: string;
+        model: string;
+        messages: Array<{
+            role: string;
+            content: string;
+        }>;
+        response: string;
+        usage?: {
+            promptTokens: number;
+            completionTokens: number;
+            totalTokens: number;
+        } | null;
+        costEstimateUsd?: number | null;
+        startedAt: number;
+        completedAt?: number | null;
+        durationMs?: number | null;
+        status?: "pending" | "success" | "error";
+        error?: string | null;
+    }): void;
+    record(_toolCall: unknown): void;
+};
+
+// @public
+export type LlmAutoCaptureOptions = false | {
+    provider: "anthropic" | "vercel-ai-sdk";
+    client?: unknown;
+};
+
+// @public
+export function wrapAgentJS<T extends AgentLike>(agent: T, options?: WrapOptions): Promise<WrappedAgent<T>>;
 
 // @public (undocumented)
 export interface WrapOptions {
     guards?: Guard[] | false;
+    llm?: LlmAutoCaptureOptions;
     repoDir?: string;
     sessionMetadata?: Record<string, unknown>;
     sessionName?: string;
