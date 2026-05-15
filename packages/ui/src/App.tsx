@@ -5,6 +5,7 @@ import StepCard from "./components/StepCard.js";
 import TimelineScrollbar from "./components/TimelineScrollbar.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { AbandonSessionModal } from "./components/AbandonSessionModal.js";
+import { ShareSessionModal } from "./components/ShareSessionModal.js";
 import { SettingsPanel } from "./components/SettingsPanel.js";
 import {
   getBlame,
@@ -35,6 +36,7 @@ export default function App() {
   const [newModalOpen, setNewModalOpen] = useState(false);
   const [abandonModalOpen, setAbandonModalOpen] = useState(false);
   const [abandonTarget, setAbandonTarget] = useState<SessionRow | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   // Helpers for write actions (defined early to avoid TDZ with loadSessions)
@@ -51,9 +53,11 @@ export default function App() {
         setSessions(rows);
         if (selectId) {
           setSelectedSession(selectId);
-        } else if (rows.length > 0 && !selectedSession) {
+        } else if (!selectedSession) {
           const firstActive = rows.find((r) => r.status !== "abandoned") ?? rows[0];
-          setSelectedSession(firstActive.id);
+          if (firstActive) {
+            setSelectedSession(firstActive.id);
+          }
         }
       } catch (e) {
         setError(String(e));
@@ -213,6 +217,16 @@ export default function App() {
                 …
               </button>
             )}
+            {selectedSession && (
+              <button
+                onClick={() => setShareModalOpen(true)}
+                title="Share selected session to a remote"
+                style={{ marginLeft: 4 }}
+                data-testid="share-session-button"
+              >
+                Share
+              </button>
+            )}
           </>
         )}
 
@@ -289,6 +303,13 @@ export default function App() {
             setAbandonTarget(null);
           }}
           onAbandoned={handleAbandoned}
+        />
+      )}
+      {shareModalOpen && selectedSession && (
+        <ShareSessionModal
+          dbPath={dbPath}
+          sessionId={selectedSession}
+          onClose={() => setShareModalOpen(false)}
         />
       )}
     </>

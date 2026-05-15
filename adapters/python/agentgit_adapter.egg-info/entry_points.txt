@@ -1,0 +1,2 @@
+[pytest11]
+agentgit_session = agentgit_adapter.pytest_plugin

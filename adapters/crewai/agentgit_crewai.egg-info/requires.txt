@@ -1,0 +1,4 @@
+agentgit-adapter>=0.1.0
+
+[dev]
+pytest>=8.0

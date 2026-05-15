@@ -24,8 +24,8 @@ export default function StepCard(props: StepCardProps) {
     return (
       <CommitContextMenu
         commit={props.commit}
-        onReplay={onReplay}
-        onExportBundle={onExportBundle}
+        {...(onReplay ? { onReplay } : {})}
+        {...(onExportBundle ? { onExportBundle } : {})}
       >
         {card}
       </CommitContextMenu>

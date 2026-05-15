@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+agentgit_openai_agents/__init__.py
+agentgit_openai_agents/adapter.py
+agentgit_openai_agents.egg-info/PKG-INFO
+agentgit_openai_agents.egg-info/SOURCES.txt
+agentgit_openai_agents.egg-info/dependency_links.txt
+agentgit_openai_agents.egg-info/requires.txt
+agentgit_openai_agents.egg-info/top_level.txt
+tests/test_openai_agents_smoke.py

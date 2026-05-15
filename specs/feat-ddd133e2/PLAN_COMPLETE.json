@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "featureId": "feat-ddd133e2",
+  "summary": "8 spec-driven polish tickets that close every confirmed audit gap (UI TS, CI matrix, untested CLI remote cmds, dead Share modal, Python packaging, harness exit test, remote-server visibility, docs) so the full audit command list passes and every built component is tested and documented.",
+  "tasks": [
+    {
+      "title": "Fix UI TypeScript strict errors (firstActive + exactOptionalPropertyTypes)",
+      "goal": "Make pnpm typecheck pass for packages/ui by guarding firstActive.id in App.tsx refreshSessions and using presence-only spread for optional onReplay/onExportBundle handlers in StepCard.tsx so they are never passed as explicit undefined under exactOptionalPropertyTypes.",
+      "specRef": "specs/feat-ddd133e2/001-ui-typescript-fixes/spec.md",
+      "acceptanceCriteria": [
+        "pnpm --filter @agentgit/ui typecheck exits 0 with zero errors on App.tsx or StepCard.tsx",
+        "pnpm --filter @agentgit/ui test still passes all StepCard and context-menu tests",
+        "firstActive selection prefers non-abandoned sessions and never throws on empty or fully-abandoned row sets"
+      ],
+      "testCommand": "cd packages/ui && pnpm typecheck && pnpm test",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Fix Python adapter packaging (declare runtime deps)",
+      "goal": "Edit the three new Python adapters' pyproject.toml to list 'agentgit-adapter>=0.1.0' so that pip install -e adapters/openai-agents (and autogen/crewai) succeeds in a clean venv and the smoke tests run without monorepo sys.path hacks.",
+      "specRef": "specs/feat-ddd133e2/005-python-adapter-packaging/spec.md",
+      "acceptanceCriteria": [
+        "pip install -e adapters/openai-agents succeeds and 'from agentgit_openai_agents import wrap_agent' works",
+        "The same holds for autogen and crewai adapters",
+        "Existing smoke tests still pass when run from a fresh venv that only has the declared dependencies"
+      ],
+      "testCommand": "python -m pip install -e adapters/python[dev] -e adapters/openai-agents[dev] -e adapters/autogen[dev] -e adapters/crewai[dev] && python -m pytest adapters/openai-agents adapters/autogen adapters/crewai -q",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Expand CI test matrix and release jobs for all adapters + remote-server",
+      "goal": "Update vitest.workspace.ts, ci.yml (python job + node --test steps + remote-server), and release.yml (three new PyPI publish jobs) so that every adapter and the remote-server roundtrip suite are executed by the same commands the rest of the repo uses.",
+      "specRef": "specs/feat-ddd133e2/002-ci-test-matrix-adapters/spec.md",
+      "acceptanceCriteria": [
+        "pnpm test runs a 'remote-server' vitest project and all its tests pass",
+        "python -m pytest ... now includes the three new adapters and they are green",
+        "node --test for the two JS adapters is executed inside the Unit tests CI job",
+        "release.yml contains publish-pypi jobs for the three new Python adapters"
+      ],
+      "testCommand": "pnpm test && node --test adapters/anthropic-sdk/smoke.test.mjs && node --test adapters/vercel-ai-sdk/smoke.test.mjs && python -m pytest adapters/python adapters/langchain adapters/openai-agents adapters/autogen adapters/crewai -q && pnpm --filter @agentgit/remote-server test",
+      "phase": "test",
+      "dependsOn": ["Fix Python adapter packaging (declare runtime deps)"]
+    },
+    {
+      "title": "Add test coverage for CLI push/fetch/pull commands",
+      "goal": "Extend the CLI integration test suite (remote.test.ts or new remote-sync.test.ts) to exercise pushCommand, fetchCommand and pullCommand against an in-process remote-server, covering token override, ref CAS, and fast-forward behaviour.",
+      "specRef": "specs/feat-ddd133e2/003-cli-untested-commands/spec.md",
+      "acceptanceCriteria": [
+        "pnpm --filter @agentgit/cli test:integration now touches the three remote command modules",
+        "Both persisted-token and --token flag paths are exercised",
+        "Conflict and 401 cases produce the expected non-zero exit codes"
+      ],
+      "testCommand": "pnpm --filter @agentgit/cli test:integration",
+      "phase": "test",
+      "dependsOn": []
+    },
+    {
+      "title": "Wire ShareSessionModal into App.tsx toolbar",
+      "goal": "Add the minimal state + toolbar button + conditional render so the already-complete ShareSessionModal (remote push UI) is reachable from the Tauri desktop app, eliminating the only dead write-side modal.",
+      "specRef": "specs/feat-ddd133e2/004-ui-share-modal-wiring/spec.md",
+      "acceptanceCriteria": [
+        "A Share button appears when a session is selected and opens the modal with correct dbPath/sessionId",
+        "The modal can list/add remotes and call pushSession (existing IPC already works)",
+        "UI test suite still passes after the wiring change"
+      ],
+      "testCommand": "cd packages/ui && pnpm pretest && pnpm test",
+      "phase": "build",
+      "dependsOn": []
+    },
+    {
+      "title": "Add harness --check exit(1) verification test",
+      "goal": "Extend benchmarks-shape.test.ts (or sibling) to spy on process.exit and force a budget violation so the only code path that makes the 'bench' CI job fail is covered by an automated test.",
+      "specRef": "specs/feat-ddd133e2/006-benchmark-harness-coverage/spec.md",
+      "acceptanceCriteria": [
+        "A vitest in packages/core asserts that a simulated violation causes process.exit(1)",
+        "The happy path (no violation) still exits 0",
+        "The test does not slow down any real benchmark scenario"
+      ],
+      "testCommand": "pnpm --filter @agentgit/core test -- src/__tests__/benchmarks-shape.test.ts",
+      "phase": "test",
+      "dependsOn": []
+    },
+    {
+      "title": "Include remote-server in root vitest workspace (web-viewer build already covered)",
+      "goal": "Add the remote-server project to vitest.workspace.ts so its roundtrip tests run automatically under pnpm test and the GitHub unit job; web-viewer is already typechecked via its build step.",
+      "specRef": "specs/feat-ddd133e2/007-remote-server-web-viewer-ci/spec.md",
+      "acceptanceCriteria": [
+        "pnpm test output contains a remote-server section with all roundtrip tests green",
+        "The GitHub Unit tests job executes the remote-server tests",
+        "web-viewer continues to be verified by pnpm --filter @agentgit/web-viewer build inside the typecheck job"
+      ],
+      "testCommand": "pnpm test && pnpm --filter @agentgit/web-viewer build",
+      "phase": "test",
+      "dependsOn": []
+    },
+    {
+      "title": "Update adapters documentation for all seven adapters",
+      "goal": "Append short, copy-pasteable sections for the five new adapters to docs/adapters.md and refresh the Feature Matrix tables in README.md + docs/index.md so users can discover every adapter that ships.",
+      "specRef": "specs/feat-ddd133e2/008-docs-adapters-update/spec.md",
+      "acceptanceCriteria": [
+        "pnpm docs:build succeeds and the generated site contains headings for all seven adapters",
+        "README and docs/index.md feature matrices reference the expanded adapter set or link to adapters.md",
+        "No existing python/langchain content is removed"
+      ],
+      "testCommand": "pnpm docs:build",
+      "phase": "review",
+      "dependsOn": ["Fix Python adapter packaging (declare runtime deps)"]
+    }
+  ]
+}

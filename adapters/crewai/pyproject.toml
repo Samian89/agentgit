@@ -8,7 +8,9 @@ version = "0.1.0"
 description = "AgentGit adapter for CrewAI"
 requires-python = ">=3.9"
 license = { text = "MIT" }
-dependencies = []
+dependencies = [
+    "agentgit-adapter>=0.1.0",
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]

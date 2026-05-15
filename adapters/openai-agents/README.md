@@ -2,6 +2,10 @@
 
 AgentGit adapter for the OpenAI Agents SDK.
 
+```bash
+pip install agentgit-openai-agents
+```
+
 ```python
 from agentgit_openai_agents import wrap_agent
 agent = wrap_agent(my_openai_agent, ".agentgit-repo")

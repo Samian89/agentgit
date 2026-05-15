@@ -2,6 +2,10 @@
 
 AgentGit adapter for [AutoGen](https://microsoft.github.io/autogen/).
 
+```bash
+pip install agentgit-autogen
+```
+
 ```python
 from agentgit_autogen import wrap_agent
 wrap_agent(my_conversable_agent, ".agentgit-repo")

@@ -1,0 +1,10 @@
+README.md
+pyproject.toml
+agentgit_autogen/__init__.py
+agentgit_autogen/adapter.py
+agentgit_autogen.egg-info/PKG-INFO
+agentgit_autogen.egg-info/SOURCES.txt
+agentgit_autogen.egg-info/dependency_links.txt
+agentgit_autogen.egg-info/requires.txt
+agentgit_autogen.egg-info/top_level.txt
+tests/test_autogen_smoke.py

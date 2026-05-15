@@ -2,6 +2,10 @@
 
 AgentGit adapter for [CrewAI](https://www.crewai.com/).
 
+```bash
+pip install agentgit-crewai
+```
+
 ```python
 from agentgit_crewai import wrap_crew
 wrap_crew(my_crew, ".agentgit-repo")

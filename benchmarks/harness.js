@@ -16,22 +16,12 @@ import * as uiSession from "./bench-ui-session-load.js";
 
 const SCENARIOS = [log10k, diffLarge, blob1mb, uiSession];
 
-const args = new Set(process.argv.slice(2));
-const checkBudgets = args.has("--check");
-const reportPath = (() => {
-  const idx = process.argv.indexOf("--report");
-  if (idx !== -1 && idx + 1 < process.argv.length) return process.argv[idx + 1];
-  return null;
-})();
-
 // CI environments are slow, so allow scenarios to skip in --check mode when
 // the platform is known to be unsuitable (e.g., 4-core GH runners on macOS
 // hit blob-1mb FS latency that doesn't reflect real-world usage). Right now
 // we don't skip anything; this hook exists so the report stays machine-readable.
 
-const iterations = Number(process.env.AGENTGIT_BENCH_ITERATIONS ?? "3");
-
-async function runScenario(mod) {
+async function runScenario(mod, iterations) {
   await mod.setup();
   const samples = [];
   // Use tinybench's measurement loop for warmup + repeats, but each iteration
@@ -64,12 +54,24 @@ function round(x) {
   return Math.round(x * 100) / 100;
 }
 
-async function main() {
+// Test-injection seam: same logic the CLI runs, but argv and the scenario list
+// are parameters. Returns the report object so tests can inspect per-scenario
+// results without parsing stdout. Calls process.exit(1) on budget violation
+// when --check is present, just like the CLI.
+export async function runForTest(argv = [], scenariosOverride = null) {
+  const argSet = new Set(argv);
+  const checkBudgets = argSet.has("--check");
+  const reportIdx = argv.indexOf("--report");
+  const reportPath =
+    reportIdx !== -1 && reportIdx + 1 < argv.length ? argv[reportIdx + 1] : null;
+  const iterations = Number(process.env.AGENTGIT_BENCH_ITERATIONS ?? "3");
+  const scenarios = scenariosOverride ?? SCENARIOS;
+
   const results = [];
-  for (const mod of SCENARIOS) {
+  for (const mod of scenarios) {
     process.stderr.write(`[bench] ${mod.NAME} ...\n`);
     try {
-      const result = await runScenario(mod);
+      const result = await runScenario(mod, iterations);
       results.push(result);
       process.stderr.write(
         `[bench] ${mod.NAME}: mean=${result.meanMs}ms max=${result.maxMs}ms budget=${result.budgetMs}ms ${result.passed ? "PASS" : "FAIL"}\n`,
@@ -104,12 +106,13 @@ async function main() {
       process.exit(1);
     }
   }
+  return report;
 }
 
 const __filename = fileURLToPath(import.meta.url);
 const isEntry = process.argv[1] && process.argv[1] === __filename;
 if (isEntry) {
-  main().catch((err) => {
+  runForTest(process.argv.slice(2)).catch((err) => {
     // eslint-disable-next-line no-console
     console.error(err);
     process.exit(2);
