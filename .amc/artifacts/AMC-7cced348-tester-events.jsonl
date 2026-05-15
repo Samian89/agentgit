@@ -1,0 +1,12 @@
+{"type":"raw","text":"## AMC-7cced348 builder-emitted tester event stream\\n"}
+{"type":"raw","text":"# HEAD: fe5cc8651cc47886f53be7ca8fc67c50db80da7b\n"}
+{"type":"raw","text":"# Date: 2026-05-15T19:49:48.000Z\n"}
+{"type":"raw","text":"# Ticket test command (verbatim): pnpm --filter @agentgit/core build && pnpm --filter @agentgit/core api:update && pnpm --filter @agentgit/core api:check && pnpm --filter @agentgit/sdk api:check && pnpm api:check\\n"}
+{"type":"raw","text":"step1 pnpm --filter @agentgit/core build => exit 0\\n"}
+{"type":"raw","text":"step2 pnpm --filter @agentgit/core api:update => exit 0 (API Extractor completed successfully)\\n"}
+{"type":"raw","text":"step3 pnpm --filter @agentgit/core api:check => exit 0 (API Extractor completed successfully)\\n"}
+{"type":"raw","text":"step4 pnpm --filter @agentgit/sdk api:check => exit 0 (API Extractor completed successfully)\\n"}
+{"type":"raw","text":"step5 pnpm api:check => exit 0 (core + sdk both succeed)\\n"}
+{"type":"raw","text":"FULL_TEST_EXIT=0\\n"}
+{"type":"raw","text":"TESTER_VERDICT: pass\\n"}
+{"type":"verdict","verdict":"pass","ticket":"AMC-7cced348"}
