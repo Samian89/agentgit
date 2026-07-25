@@ -66,6 +66,40 @@ agentgit replay demo
 agentgit export demo > demo.agentgit.json
 ```
 
+## How AgentGit Works
+
+`wrapAgentJS` creates a proxy and a local session, then turns the prompt and
+completed agent steps into parent-linked, content-addressed commits. Before an
+intercepted tool runs, guards such as `ConfirmationGuard` and `SnapshotGuard`
+evaluate it; snapshots are recorded only when a configured guard applies.
+Supported LLM clients can also contribute optional `LlmCall` records.
+
+The repository keeps everything local under `.agentgit/`: immutable,
+SHA-256-addressed data lives in `.agentgit/objects/`, while
+`.agentgit/index.db` is a SQLite query mirror. The CLI and read-only UI reopen
+that history for inspection and replay.
+
+```mermaid
+flowchart TD
+    A[User prompt] --> B["wrapAgentJS proxy<br/>records prompt and intercepts calls"]
+    B --> C{"Guards<br/>ConfirmationGuard / SnapshotGuard"}
+    C -->|allowed tool call| D[Tool executes]
+    C -.->|conditional snapshot| E[Snapshot record]
+    B -.->|supported client; optional| F[LlmCall capture]
+    D --> G[Commit recording]
+    E --> G
+    F --> G
+    G --> H["Parent-linked commit<br/>points to previous commit"]
+    H --> I[Repository persistence]
+    I --> J[".agentgit/objects/<br/>content-addressed objects"]
+    I --> K[".agentgit/index.db<br/>SQLite query mirror"]
+    J --> L["CLI: agentgit log / diff / replay<br/>or read-only UI inspection"]
+    K --> L
+```
+
+See the [detailed architecture](./docs/architecture.md) for the object schema,
+recording sequence, and repository invariants.
+
 ## Feature Matrix
 
 | Built | Planned |
